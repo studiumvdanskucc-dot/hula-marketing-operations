@@ -1,0 +1,79 @@
+name: Weekly HULA trend refresh
+
+on:
+  schedule:
+    # GitHub cron uses UTC. 01:17 UTC is 09:17 in Hong Kong.
+    - cron: "17 1 * * 3"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: hula-weekly-trend-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      SHOPIFY_SHOP: ${{ secrets.SHOPIFY_SHOP }}
+      SHOPIFY_CLIENT_ID: ${{ secrets.SHOPIFY_CLIENT_ID }}
+      SHOPIFY_CLIENT_SECRET: ${{ secrets.SHOPIFY_CLIENT_SECRET }}
+      SHOPIFY_API_VERSION: "2026-07"
+      SHOPIFY_STOREFRONT_URL: "https://thehula.com"
+      SHOPIFY_MAX_PRODUCTS: "750"
+      APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
+      APIFY_X_TASK_ID: ${{ secrets.APIFY_X_TASK_ID }}
+      APIFY_X_TASK_INPUT_JSON: ${{ secrets.APIFY_X_TASK_INPUT_JSON }}
+      APIFY_TIMEOUT_SECONDS: "480"
+      APIFY_X_LISTENING_MODE: "topic_plan"
+      APIFY_RESULTS_PER_QUERY: "50"
+      APIFY_EXPERT_RESULTS_PER_QUERY: "35"
+      APIFY_MAX_TOTAL_CHARGE_USD: "0.25"
+      X_LANGUAGE: "en"
+      X_EXPERT_ACCOUNTS: "VogueRunway,VogueBusiness,BoF,WGSN,Lyst,WhoWhatWear,HYPEBEAST,Highsnobiety,Fashionista_com,Dazed,i_D,BritishVogue,VogueHongKong,TatlerAsia,VestiaireCo,therealreal"
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      OPENROUTER_API_URL: "https://openrouter.ai/api/v1/chat/completions"
+      OPENROUTER_MODEL: "qwen/qwen3-vl-32b-instruct"
+      OPENROUTER_TIMEOUT: "180"
+      OPENROUTER_SITE_URL: ${{ secrets.OPENROUTER_SITE_URL }}
+      OPENROUTER_APP_NAME: "HULA Trend Intelligence"
+      SERPAPI_API_KEY: ${{ secrets.SERPAPI_API_KEY }}
+      SERPAPI_ENDPOINT: "https://serpapi.com/search.json"
+      SERPAPI_TIMEOUT_SECONDS: "75"
+      GOOGLE_TRENDS_GEO: "HK"
+      GOOGLE_TRENDS_TIMEFRAME: "today 3-m"
+      GOOGLE_TRENDS_ANCHOR_TERM: "designer fashion"
+      GOOGLE_TRENDS_RELATED_QUERIES: "true"
+      GOOGLE_TRENDS_PROVIDER: "serpapi"
+      SNAPSHOT_PATH: "data/latest_snapshot.json"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Refresh weekly intelligence
+        run: python scripts/weekly_refresh.py
+
+      - name: Save the aggregate snapshot
+        run: |
+          git config user.name "HULA Trend Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add data/latest_snapshot.json data/archive/
+          if git diff --cached --quiet; then
+            echo "No snapshot changes to commit."
+          else
+            git commit -m "data: refresh weekly HULA trend snapshot"
+            git push
+          fi
