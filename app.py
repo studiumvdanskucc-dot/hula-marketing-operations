@@ -48,7 +48,7 @@ PALETTE = [PINK, INK, LILAC, "#e8a846", "#6f8e84", "#d46262"]
 CATALOGUE_CSV = "Upload CSV"
 CATALOGUE_API = "Shopify API"
 CATALOGUE_SELECTOR_KEY = "catalogue_source_selector_v2"
-APP_BUILD = "2026.07.22.7"
+APP_BUILD = "2026.07.22.8"
 DECISION_COLORS = {
     "Act now": PINK,
     "Test this week": "#e8a846",
@@ -457,7 +457,7 @@ def this_week(snapshot: dict) -> None:
     meta = snapshot.get("meta", {})
     trends = snapshot.get("trends", [])
     updated = hk_time(str(meta.get("generated_at", "")))
-    week_label = f"WEEK {updated.isocalendar().week} · HONG KONG"
+    week_label = f"WEEK {updated.isocalendar().week} · GLOBAL FASHION"
     page_header(
         week_label,
         "What HULA should talk about now.",
@@ -478,7 +478,7 @@ def this_week(snapshot: dict) -> None:
     filtered_count = len((meta.get("filtered_terms") or []))
     if filtered_count:
         st.caption(
-            f"Quality control removed {filtered_count} overly broad term(s) before this page was built. "
+            f"Quality control removed {filtered_count} irrelevant or overly broad term(s) before this page was built. "
             "The complete list is in Data & Setup."
         )
 
@@ -910,7 +910,7 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
             "Google Trends",
             str(status.get("google_trends", "ready on refresh")),
             (
-                f"Market: {settings.google_geo} · Route: {google_route} · "
+                f"Market: {settings.google_geo.title()} · Route: {google_route} · "
                 f"Credentials: {'added' if settings.serpapi_configured else 'missing'}"
             ),
         ),
@@ -1128,7 +1128,7 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
             f"after removing {duplicates:,} cross-query duplicates. Topic grouping: {clustering}."
         )
 
-    section_header("Trend quality filter", "Specific ideas in; generic categories out")
+    section_header("Trend quality filter", "Fashion signals in; unrelated noise out")
     st.write(
         "The app rejects category-only labels before they reach the landing page, radar, product matching or Qwen. "
         "A descriptor plus a product stays valid: **black bags** and **red trousers** pass; **bags** and **trousers** do not."
@@ -1147,10 +1147,10 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
         )
         st.dataframe(filtered_table, hide_index=True, width="stretch")
         st.caption(
-            f"Last snapshot: {len(filtered_rows)} unique broad term(s) removed. This is the complete audit list for that refresh."
+            f"Last snapshot: {len(filtered_rows)} irrelevant or overly broad term(s) removed. This is the complete audit list for that refresh."
         )
     else:
-        st.success("No broad terms had to be removed from the current snapshot.")
+        st.success("No irrelevant or overly broad terms had to be removed from the current snapshot.")
     permanent_blocklist = generic_term_catalogue()
     with st.expander(
         f"View the complete permanent single-term blocklist ({len(permanent_blocklist)})"
@@ -1307,7 +1307,7 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
     section_header("Connection checks", "Test the other services without exposing credentials")
     tests = st.columns(3)
     with tests[0]:
-        if st.button("Test Google Trends (HK)", width="stretch"):
+        if st.button(f"Test Google Trends ({settings.google_geo.title()})", width="stretch"):
             try:
                 result = GoogleTrendsConnector(
                     geo=settings.google_geo,
@@ -1466,7 +1466,11 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
                 series = {}
                 for column in frame.columns[1:]:
                     numeric = pd.to_numeric(frame[column].astype(str).str.replace("<1", "0", regex=False), errors="coerce").fillna(0)
-                    series[str(column).replace(": (Hong Kong)", "")] = [
+                    series[
+                        str(column)
+                        .replace(": (Hong Kong)", "")
+                        .replace(": (Worldwide)", "")
+                    ] = [
                         {"date": str(date), "value": float(value)}
                         for date, value in zip(frame[date_column], numeric)
                     ]
@@ -1532,7 +1536,7 @@ def sidebar(snapshot: dict, settings: Settings) -> str:
     with st.sidebar:
         st.image(cropped_logo(), width=112)
         st.markdown(
-            '<div class="brand-lockup"><span class="data">Fashion Data Science</span><span class="teri">by Teri</span></div>',
+            '<div class="brand-lockup"><span class="data">Data Sciences</span><span class="teri">by Teri</span></div>',
             unsafe_allow_html=True,
         )
         page = st.radio(

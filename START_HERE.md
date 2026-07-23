@@ -1,6 +1,6 @@
 # Start HULA Trend Intelligence
 
-This is build **2026.07.22.7**. The same build number appears at the bottom of
+This is build **2026.07.22.8**. The same build number appears at the bottom of
 the app sidebar.
 
 ## One new Google Trends secret
@@ -19,7 +19,7 @@ clicks and usage limits.
 ## Run locally
 
 ```bash
-cd ~/Downloads/hula_trend_intelligence_STREAMLIT_READY
+cd ~/Downloads/hula_trend_intelligence_GLOBAL_FASHION
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
@@ -27,10 +27,10 @@ python -m streamlit run app.py
 ```
 
 If another copy is already running, stop it with `Control + C` first. Open
-<http://localhost:8501>, confirm **Build 2026.07.22.7**, then open **Data &
+<http://localhost:8501>, confirm **Build 2026.07.22.8**, then open **Data &
 Setup** and run these checks in order:
 
-1. **Test Google Trends (HK)**
+1. **Test Google Trends (Worldwide)**
 2. **Test Apify task**
 3. **Test OpenRouter**
 4. Upload and apply the HULA catalogue CSV if you are not using Shopify API

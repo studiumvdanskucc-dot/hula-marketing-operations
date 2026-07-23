@@ -14,6 +14,20 @@ class GoogleTrendsError(RuntimeError):
 
 
 DEFAULT_SERPAPI_ENDPOINT = "https://serpapi.com/search.json"
+WORLDWIDE_GEO_ALIASES = {"", "GLOBAL", "WORLD", "WORLDWIDE", "ALL"}
+
+
+def normalize_google_geo(value: Any) -> str:
+    """Return a Google Trends country code, or blank for worldwide data."""
+
+    cleaned = str(value or "").strip().upper()
+    return "" if cleaned in WORLDWIDE_GEO_ALIASES else cleaned
+
+
+def google_market_label(value: Any) -> str:
+    """Return a human-readable market label without changing the API value."""
+
+    return normalize_google_geo(value) or "Worldwide"
 
 
 def _batches(terms: list[str], anchor: str, batch_size: int = 4) -> list[list[str]]:
@@ -182,7 +196,7 @@ class GoogleTrendsConnector:
 
     def __init__(
         self,
-        geo: str = "HK",
+        geo: str = "WORLDWIDE",
         timeframe: str = "today 3-m",
         category: int = 0,
         anchor_term: str = "designer fashion",
@@ -196,7 +210,8 @@ class GoogleTrendsConnector:
         connect_timeout_seconds: int = 10,
         read_timeout_seconds: int = 35,
     ) -> None:
-        self.geo = str(geo or "HK").strip().upper()
+        self.geo = normalize_google_geo(geo)
+        self.market = google_market_label(geo)
         self.timeframe = str(timeframe or "today 3-m").strip()
         self.category = int(category or 0)
         self.anchor_term = str(anchor_term or "designer fashion").strip()
@@ -228,7 +243,6 @@ class GoogleTrendsConnector:
         params: dict[str, Any] = {
             "engine": "google_trends",
             "q": query,
-            "geo": self.geo,
             "date": self.timeframe,
             "data_type": data_type,
             "hl": "en",
@@ -236,6 +250,11 @@ class GoogleTrendsConnector:
             "api_key": self.serpapi_api_key,
             "output": "json",
         }
+        # Google Trends treats an omitted geo as worldwide. Sending the literal
+        # word "WORLDWIDE" is not valid, so only country-scoped requests carry
+        # the parameter.
+        if self.geo:
+            params["geo"] = self.geo
         if self.category:
             params["cat"] = self.category
         response = self.session.get(
@@ -358,7 +377,7 @@ class GoogleTrendsConnector:
                 result = self._collect_serpapi(cleaned_terms, seeds)
                 attempts.append({"provider": provider, "status": "succeeded"})
                 result["attempts"] = attempts
-                result["market"] = self.geo
+                result["market"] = self.market
                 result["timeframe"] = self.timeframe
                 return result
             except Exception as exc:

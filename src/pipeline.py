@@ -544,7 +544,7 @@ def refresh_snapshot(
             },
             "warnings": warnings,
             "methodology_version": "0.4",
-            "quality_filter_version": "1.0",
+            "quality_filter_version": "2.0",
             "privacy": (
                 "Raw X posts and author identifiers are not persisted. Author identifiers are "
                 "hashed in memory for breadth calculations; only aggregate topic evidence is saved."

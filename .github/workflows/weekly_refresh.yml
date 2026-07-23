@@ -43,7 +43,7 @@ jobs:
       SERPAPI_API_KEY: ${{ secrets.SERPAPI_API_KEY }}
       SERPAPI_ENDPOINT: "https://serpapi.com/search.json"
       SERPAPI_TIMEOUT_SECONDS: "75"
-      GOOGLE_TRENDS_GEO: "HK"
+      GOOGLE_TRENDS_GEO: "WORLDWIDE"
       GOOGLE_TRENDS_TIMEFRAME: "today 3-m"
       GOOGLE_TRENDS_ANCHOR_TERM: "designer fashion"
       GOOGLE_TRENDS_RELATED_QUERIES: "true"

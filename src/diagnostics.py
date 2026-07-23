@@ -154,7 +154,7 @@ def diagnostic_report(
     openrouter_configured: bool,
     openrouter_model: str,
     google_provider: str = "auto",
-    google_geo: str = "HK",
+    google_geo: str = "WORLDWIDE",
 ) -> dict[str, Any]:
     """Create a shareable report that intentionally excludes every secret value."""
     return {

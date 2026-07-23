@@ -130,7 +130,7 @@ class Settings:
     openrouter_timeout: int = 180
     openrouter_site_url: str = ""
     openrouter_app_name: str = "HULA Trend Intelligence"
-    google_geo: str = "HK"
+    google_geo: str = "WORLDWIDE"
     google_timeframe: str = "today 3-m"
     google_category: int = 0
     google_anchor_term: str = "designer fashion"
@@ -220,7 +220,7 @@ def load_settings() -> Settings:
         openrouter_app_name=str(
             setting("OPENROUTER_APP_NAME", "HULA Trend Intelligence")
         ),
-        google_geo=str(setting("GOOGLE_TRENDS_GEO", "HK")),
+        google_geo=str(setting("GOOGLE_TRENDS_GEO", "WORLDWIDE")),
         google_timeframe=str(setting("GOOGLE_TRENDS_TIMEFRAME", "today 3-m")),
         google_category=as_int(setting("GOOGLE_TRENDS_CATEGORY", 0), 0),
         google_anchor_term=str(

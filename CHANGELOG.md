@@ -1,5 +1,18 @@
 # Changelog
 
+## Build 2026.07.22.8 — Global Fashion Guardrail
+
+- Changed Google Trends from Hong Kong to worldwide. Worldwide SerpApi requests
+  omit the country parameter, as required by Google Trends.
+- Kept X listening global and English-language.
+- Added a strict fashion-relevance gate after source collection. Unrelated
+  concepts such as `Interior Design` and `Kindness` are now removed before
+  scoring, product matching or display.
+- Normalised the shortened `Jane` signal to `Mary Janes`; specific fashion
+  ideas such as `Raffia Bags` remain eligible.
+- Invalidated the older Hong Kong Google cache automatically when the worldwide
+  build runs its first refresh.
+
 ## Build 2026.07.22.7 — Streamlit-Ready Google Trends
 
 - Replaced the Apify Google Trends Actor and default direct `pytrends` request

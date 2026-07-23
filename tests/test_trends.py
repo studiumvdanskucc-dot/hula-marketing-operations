@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 from src.analysis.trends import (
     build_topic_clusters,
+    canonical_name,
     extract_x_signals,
     generic_trend_reason,
     merge_trend_signals,
@@ -157,6 +158,46 @@ def test_generic_category_filter_keeps_specific_combinations() -> None:
         "east west bags",
     ):
         assert generic_trend_reason(specific) == ""
+
+
+def test_non_fashion_topics_are_rejected_but_jane_is_kept_as_mary_janes() -> None:
+    for unrelated in ("Interior Design", "Kindness", "wellness", "architecture"):
+        assert generic_trend_reason(unrelated)
+
+    assert generic_trend_reason("Jane") == ""
+    assert canonical_name("Jane") == "Mary Janes"
+    assert generic_trend_reason("Raffia Bags") == ""
+
+
+def test_current_noise_snapshot_is_cleaned_and_jane_is_normalised() -> None:
+    snapshot = {
+        "meta": {"raw_counts": {}},
+        "trends": [
+            {"id": "jane", "name": "Jane"},
+            {"id": "raffia-bags", "name": "Raffia Bags"},
+            {"id": "interior-design", "name": "Interior Design"},
+            {"id": "kindness", "name": "Kindness"},
+        ],
+        "recommendations": [
+            {"trend_id": "jane", "product_id": "1"},
+            {"trend_id": "raffia-bags", "product_id": "2"},
+            {"trend_id": "interior-design", "product_id": "3"},
+            {"trend_id": "kindness", "product_id": "4"},
+        ],
+    }
+
+    cleaned = sanitize_snapshot_trends(snapshot)
+
+    assert [trend["name"] for trend in cleaned["trends"]] == [
+        "Mary Janes",
+        "Raffia Bags",
+    ]
+    assert [row["trend_id"] for row in cleaned["recommendations"]] == [
+        "mary-janes",
+        "raffia-bags",
+    ]
+    removed = {row["term"] for row in cleaned["meta"]["filtered_terms"]}
+    assert {"Interior Design", "Kindness"} <= removed
 
 
 def test_generic_google_series_is_removed_and_audited() -> None:

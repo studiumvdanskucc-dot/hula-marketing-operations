@@ -13,7 +13,7 @@ cp .env.example .env
 python -m streamlit run app.py
 ```
 
-Complete `.env`, then confirm Google Trends HK, Apify and OpenRouter pass their
+Complete `.env`, then confirm Google Trends Worldwide, Apify and OpenRouter pass their
 connection checks. `.env` is ignored by Git and must never be committed.
 
 ## 2. Create a private GitHub repository
@@ -70,7 +70,7 @@ are added.
    placeholders. At minimum, add the SerpApi, Apify, OpenRouter and team
    password values.
 7. Select **Deploy**.
-8. Open the final URL and confirm the sidebar says **Build 2026.07.22.7**.
+8. Open the final URL and confirm the sidebar says **Build 2026.07.22.8**.
 
 The Streamlit and GitHub secrets stores are separate. The weekly Action needs
 its own copy of every secret used during an automated refresh.
@@ -98,8 +98,8 @@ weekly source of `data/latest_snapshot.json`.
 
 1. Wake/open the Streamlit app.
 2. Confirm the team password works.
-3. Confirm **Build 2026.07.22.7**.
-4. Run **Test Google Trends (HK)**; it should report SerpApi and one search.
+3. Confirm **Build 2026.07.22.8**.
+4. Run **Test Google Trends (Worldwide)**; it should report SerpApi and one search.
 5. Run the Apify and OpenRouter tests.
 6. Run the GitHub workflow manually.
 7. Confirm it creates a `data: refresh weekly HULA trend snapshot` commit.

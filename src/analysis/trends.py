@@ -24,6 +24,9 @@ CANONICAL_PHRASES = {
     "balletcore shoes": "Ballet Flats",
     "mary jane": "Mary Janes",
     "mary janes": "Mary Janes",
+    # The X phrase extractor can shorten "Mary Jane shoes" to "jane". HULA
+    # explicitly treats that fashion shorthand as the shoe trend, not a person.
+    "jane": "Mary Janes",
     "fisherman sandal": "Fisherman Sandals",
     "fisherman sandals": "Fisherman Sandals",
     "butter yellow": "Butter Yellow",
@@ -137,6 +140,40 @@ PLATFORM_ONLY_TOKENS = {
     "twitter", "x",
 }
 
+# A candidate must contain at least one concrete fashion-domain cue. This is
+# intentionally stricter than the broad-term filter: posts from fashion sources
+# can still mention unrelated ideas such as interiors, wellness or kindness.
+FASHION_PRODUCT_TOKENS = {
+    "accessory", "accessories", "apparel", "bag", "bags", "belt", "belts",
+    "blazer", "blazers", "blouse", "blouses", "boot", "boots", "bracelet",
+    "bracelets", "cardigan", "cardigans", "clutch", "clutches", "coat",
+    "coats", "corset", "corsets", "dress", "dresses", "earring", "earrings",
+    "flat", "flats", "footwear", "gown", "gowns", "handbag", "handbags",
+    "heel", "heels", "jacket", "jackets", "jean", "jeans", "jewellery",
+    "jewelry", "loafer", "loafers", "necklace", "necklaces", "outfit",
+    "outfits", "pant", "pants", "pump", "pumps", "sandal", "sandals",
+    "scarf", "scarves", "shirt", "shirts", "shoe", "shoes", "silhouette",
+    "silhouettes", "skirt", "skirts", "sneaker", "sneakers", "suit", "suits",
+    "sweater", "sweaters", "tie", "ties", "top", "tops", "tote", "totes",
+    "trainer", "trainers", "trouser", "trousers", "vest", "vests", "watch",
+    "watches",
+}
+
+FASHION_STYLE_TOKENS = {
+    "animal", "archive", "athleisure", "ballet", "balletcore", "barrel",
+    "boho", "bohemian", "burgundy", "capri", "charm", "coastal", "coquette",
+    "corsetry", "crochet", "denim", "drop", "gorpcore", "lace", "leather",
+    "leopard", "maxi", "metallic", "minimalist", "maximalist", "nautical",
+    "polka", "preloved", "preowned", "print", "raffia", "resale", "satin",
+    "sheer", "silk", "street", "streetwear", "suede", "tailoring", "tweed",
+    "vintage", "waist", "woven", "y2k",
+}
+
+FASHION_DOMAIN_TOKENS = {
+    "couture", "fashion", "menswear", "runway", "sartorial", "streetwear",
+    "wardrobe", "womenswear",
+}
+
 CATEGORY_RULES = {
     "Bags": {"bag", "bags", "handbag", "tote", "clutch", "raffia", "suede", "woven"},
     "Shoes": {"shoe", "shoes", "sandal", "sandals", "flat", "flats", "ballet", "boot", "boots", "loafer", "loafers", "heel", "heels", "pump", "pumps"},
@@ -166,16 +203,20 @@ def _clean_phrase(value: str) -> str:
 
 
 def generic_trend_reason(value: str) -> str:
-    """Explain why a label is too broad to become a business trend.
+    """Explain why a label is too broad or unrelated to fashion.
 
     A descriptor plus a product remains valid (``black bags`` or ``red
-    trousers``); only category-only, vague-only and source/platform labels are
-    removed.
+    trousers``). Category-only, vague-only, source/platform and non-fashion
+    labels are removed before scoring.
     """
 
     phrase = _clean_phrase(value)
     if not phrase:
         return "Empty label"
+    # Known ontology phrases are curated fashion concepts. This includes the
+    # explicit Jane -> Mary Janes shorthand requested for HULA.
+    if phrase in CANONICAL_PHRASES:
+        return ""
     tokens = set(phrase.split())
     if len(tokens) == 1 and tokens & BROAD_SINGLE_TOKENS:
         return "Generic product or fashion category"
@@ -185,6 +226,12 @@ def generic_trend_reason(value: str) -> str:
         return "Only broad fashion/category words"
     if tokens <= PLATFORM_ONLY_TOKENS | GENERIC_FASHION_FILLERS:
         return "Platform or source name, not a fashion trend"
+    if not (
+        tokens & FASHION_PRODUCT_TOKENS
+        or tokens & FASHION_STYLE_TOKENS
+        or tokens & FASHION_DOMAIN_TOKENS
+    ):
+        return "No clear fashion product, material, silhouette or style signal"
     return ""
 
 
@@ -247,12 +294,13 @@ def consolidate_filter_audit(
 
 
 def sanitize_snapshot_trends(snapshot: dict[str, Any]) -> dict[str, Any]:
-    """Remove broad labels from stored/older snapshots before any page renders."""
+    """Remove broad or non-fashion labels before any page renders."""
 
     trends = list(snapshot.get("trends") or [])
     audit = list((snapshot.get("meta") or {}).get("filtered_terms") or [])
     kept: list[dict[str, Any]] = []
     removed_ids: set[str] = set()
+    remapped_ids: dict[str, str] = {}
     for trend in trends:
         name = str(trend.get("name") or "")
         reason = generic_trend_reason(name)
@@ -260,24 +308,39 @@ def sanitize_snapshot_trends(snapshot: dict[str, Any]) -> dict[str, Any]:
             removed_ids.add(str(trend.get("id") or ""))
             _audit_filtered(audit, name, "Stored snapshot", reason)
         else:
-            kept.append(trend)
-    if not removed_ids and len(kept) == len(trends):
+            canonical = CANONICAL_PHRASES.get(_clean_phrase(name), name)
+            if canonical != name:
+                normalised = dict(trend)
+                old_id = str(trend.get("id") or "")
+                new_id = slugify(canonical)
+                normalised["name"] = canonical
+                normalised["id"] = new_id
+                if old_id:
+                    remapped_ids[old_id] = new_id
+                kept.append(normalised)
+            else:
+                kept.append(trend)
+    if not removed_ids and not remapped_ids and len(kept) == len(trends):
         return snapshot
 
     updated = dict(snapshot)
     updated["trends"] = kept
-    updated["recommendations"] = [
-        row
-        for row in snapshot.get("recommendations") or []
-        if str(row.get("trend_id") or "") not in removed_ids
-    ]
+    recommendations: list[dict[str, Any]] = []
+    for row in snapshot.get("recommendations") or []:
+        trend_id = str(row.get("trend_id") or "")
+        if trend_id in removed_ids:
+            continue
+        if trend_id in remapped_ids:
+            row = {**row, "trend_id": remapped_ids[trend_id]}
+        recommendations.append(row)
+    updated["recommendations"] = recommendations
     meta = dict(snapshot.get("meta") or {})
     meta["filtered_terms"] = consolidate_filter_audit(audit)
     raw_counts = dict(meta.get("raw_counts") or {})
     raw_counts["filtered_generic_terms"] = len(meta["filtered_terms"])
     raw_counts["recommendations"] = len(updated["recommendations"])
     meta["raw_counts"] = raw_counts
-    meta["quality_filter_version"] = "1.0"
+    meta["quality_filter_version"] = "2.0"
     updated["meta"] = meta
     return updated
 
@@ -827,7 +890,7 @@ def _why_now(row: dict[str, Any]) -> str:
     clauses: list[str] = []
     if row.get("google_score") is not None:
         clauses.append(
-            f"Hong Kong search interest is {float(row.get('search_momentum') or 0):+.0f}% versus its recent baseline"
+            f"Worldwide Google search interest is {float(row.get('search_momentum') or 0):+.0f}% versus its recent baseline"
         )
     if row.get("x_score") is not None:
         clauses.append(

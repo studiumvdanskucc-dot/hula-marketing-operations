@@ -1,6 +1,6 @@
 # Google Trends through SerpApi
 
-Build `2026.07.22.7` moves Google Trends away from Apify and `pytrends`.
+Build `2026.07.22.8` uses worldwide Google Trends through SerpApi.
 SerpApi makes the Google-facing request and returns structured Trends data, so
 the Streamlit app does not launch another Actor and does not connect to
 `trends.google.com` directly.
@@ -31,7 +31,8 @@ Never commit the key to the repository.
 
 ## Bounded weekly use
 
-The app sends `geo=HK` on every request. One full live refresh is capped at:
+The app omits the country parameter so Google Trends returns worldwide data.
+One full live refresh is capped at:
 
 - three Interest over time comparisons, covering up to 12 fashion terms;
 - two related-query searches;
@@ -54,7 +55,7 @@ The supplied defaults are:
 SERPAPI_ENDPOINT = "https://serpapi.com/search.json"
 SERPAPI_TIMEOUT_SECONDS = "75"
 GOOGLE_TRENDS_PROVIDER = "auto"
-GOOGLE_TRENDS_GEO = "HK"
+GOOGLE_TRENDS_GEO = "WORLDWIDE"
 GOOGLE_TRENDS_TIMEFRAME = "today 3-m"
 GOOGLE_TRENDS_MAX_TERMS = "12"
 GOOGLE_TRENDS_MAX_DISCOVERY_SEEDS = "2"
@@ -68,10 +69,10 @@ Data & Setup if the API allowance is ever exhausted.
 
 ## Verify it
 
-Open **Data & Setup → Connection checks → Test Google Trends (HK)**. A successful
+Open **Data & Setup → Connection checks → Test Google Trends (Worldwide)**. A successful
 message must say:
 
-- market `HK`;
+- market `Worldwide`;
 - provider `SerpApi Google Trends`;
 - a positive timeline-point count;
 - one API search.

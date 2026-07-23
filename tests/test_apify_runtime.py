@@ -124,7 +124,7 @@ def test_google_cache_is_scoped_to_market_and_timeframe() -> None:
             "series": {"black bags": [{"date": "2026-07-01", "value": 50}]},
         }
     }
-    cache, age = _google_cache_state(snapshot, Settings())
+    cache, age = _google_cache_state(snapshot, Settings(google_geo="HK"))
     assert cache["market"] == "HK"
     assert age is not None and age < 1
 

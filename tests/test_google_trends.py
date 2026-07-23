@@ -99,6 +99,33 @@ def test_serpapi_request_uses_hong_kong_not_us() -> None:
     assert captured["engine"] == "google_trends"
 
 
+def test_worldwide_request_omits_geo_filter() -> None:
+    captured = {}
+
+    class Response:
+        ok = True
+
+        def json(self):
+            return {"search_metadata": {"status": "Success"}}
+
+    class Session:
+        def get(self, url, **kwargs):
+            captured.update(kwargs.get("params") or {})
+            return Response()
+
+    connector = GoogleTrendsConnector(
+        geo="WORLDWIDE",
+        provider="serpapi",
+        serpapi_api_key="key",
+    )
+    connector.session = Session()
+    connector._serpapi_request(query="ballet flats", data_type="TIMESERIES")
+
+    assert "geo" not in captured
+    assert captured["tz"] == 0
+    assert connector.market == "Worldwide"
+
+
 def test_serpapi_plan_is_bounded_to_five_lightweight_searches(monkeypatch) -> None:
     connector = GoogleTrendsConnector(
         provider="serpapi",

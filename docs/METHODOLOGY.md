@@ -86,7 +86,7 @@ and activity.
 X data remains a listening sample, not a census. Actor query design, platform
 demographics and access conditions affect the result.
 
-## Google Trends Hong Kong
+## Google Trends worldwide
 
 Candidate phrases from social discovery, related-query discovery and the HULA
 watchlist are measured for the selected market and time range. A percentile
@@ -119,7 +119,7 @@ times out, a market- and timeframe-compatible cache up to seven days old may be
 retained with an explicit cached status. Cached data is never presented as a
 new live collection.
 
-The provider, requested `HK` market, attempts, API-search count and returned
+The provider, requested worldwide market, attempts, API-search count and returned
 timeline count are saved with the aggregate snapshot. The API key is never
 saved in the snapshot or safe diagnostic report.
 
@@ -128,7 +128,7 @@ saved in the snapshot or safe diagnostic report.
 The target evidence mix is:
 
 ```text
-45% Google Trends Hong Kong
+45% Google Trends worldwide
 30% open X topic momentum
 15% expert-fashion confirmation
 10% visual validation from TikTok/Pinterest
