@@ -10,6 +10,11 @@ from typing import Any, Iterable
 import pandas as pd
 
 
+MAX_CSV_SIZE_MB = 150
+MAX_CSV_SIZE_BYTES = MAX_CSV_SIZE_MB * 1024 * 1024
+DEFAULT_MAX_ROWS = 400_000
+
+
 class CatalogCsvError(ValueError):
     """Raised when an uploaded catalogue cannot be normalised safely."""
 
@@ -115,32 +120,89 @@ def _column_map(frame: pd.DataFrame) -> dict[str, str]:
     return output
 
 
+def _relevant_columns(columns: Iterable[Any]) -> list[str]:
+    """Keep only fields used by the catalogue normaliser.
+
+    HULA's full Shopify export currently contains more than 100 columns. Reading
+    all of them makes a roughly 107 MB upload expand to well over 1 GB in
+    memory, even though the dashboard uses only a small subset.
+    """
+
+    source_columns = [str(column) for column in columns]
+    aliases = {
+        _normalise_header(alias)
+        for field_aliases in ALIASES.values()
+        for alias in field_aliases
+    }
+    shopify_markers = {"variant price", "variant sku", "body html", "image src"}
+    wanted = aliases | shopify_markers
+    selected = [
+        column
+        for column in source_columns
+        if _normalise_header(column) in wanted
+    ]
+    if selected:
+        return selected
+    # Preserve a useful validation error for completely unrelated CSV files.
+    return source_columns[:12]
+
+
+def _read_frame(
+    source: io.BytesIO | io.StringIO,
+    *,
+    max_rows: int,
+    encoding: str | None = None,
+) -> pd.DataFrame:
+    read_options: dict[str, Any] = {
+        "dtype": str,
+        "keep_default_na": False,
+        "on_bad_lines": "error",
+    }
+    if encoding is not None:
+        read_options["encoding"] = encoding
+
+    header = pd.read_csv(source, nrows=0, **read_options)
+    source.seek(0)
+    selected_columns = _relevant_columns(header.columns)
+    return pd.read_csv(
+        source,
+        usecols=selected_columns,
+        nrows=max_rows + 1,
+        **read_options,
+    )
+
+
 def _read_csv(payload: bytes | str, max_rows: int) -> pd.DataFrame:
     if isinstance(payload, bytes):
-        if len(payload) > 20 * 1024 * 1024:
-            raise CatalogCsvError("The catalogue CSV must be smaller than 20 MB.")
-        decoded: str | None = None
+        if len(payload) > MAX_CSV_SIZE_BYTES:
+            raise CatalogCsvError(
+                f"The catalogue CSV must be smaller than {MAX_CSV_SIZE_MB} MB."
+            )
+        frame: pd.DataFrame | None = None
+        last_error: Exception | None = None
         for encoding in ("utf-8-sig", "utf-8", "cp1252"):
             try:
-                decoded = payload.decode(encoding)
+                frame = _read_frame(
+                    io.BytesIO(payload),
+                    max_rows=max_rows,
+                    encoding=encoding,
+                )
                 break
-            except UnicodeDecodeError:
+            except (UnicodeDecodeError, pd.errors.ParserError) as exc:
+                last_error = exc
                 continue
-        if decoded is None:
-            raise CatalogCsvError("The CSV encoding could not be read. Export it as UTF-8 CSV.")
+        if frame is None:
+            raise CatalogCsvError(
+                "The CSV encoding could not be read. Export it as UTF-8 CSV."
+            ) from last_error
     else:
-        decoded = payload
-    try:
-        frame = pd.read_csv(
-            io.StringIO(decoded),
-            dtype=str,
-            keep_default_na=False,
-            on_bad_lines="error",
-        )
-    except (pd.errors.ParserError, UnicodeError) as exc:
-        raise CatalogCsvError(f"The CSV could not be parsed: {exc}") from exc
+        try:
+            frame = _read_frame(io.StringIO(payload), max_rows=max_rows)
+        except (pd.errors.ParserError, UnicodeError) as exc:
+            raise CatalogCsvError(f"The CSV could not be parsed: {exc}") from exc
     frame.columns = [str(column).strip() for column in frame.columns]
-    frame = frame.loc[~frame.apply(lambda row: all(not str(value).strip() for value in row), axis=1)]
+    non_empty_rows = frame.apply(lambda column: column.str.strip().ne("")).any(axis=1)
+    frame = frame.loc[non_empty_rows]
     if frame.empty:
         raise CatalogCsvError("The uploaded CSV has no product rows.")
     if len(frame) > max_rows:
@@ -306,7 +368,7 @@ def parse_product_csv(
     *,
     storefront_url: str = "https://thehula.com",
     default_currency: str = "HKD",
-    max_rows: int = 50_000,
+    max_rows: int = DEFAULT_MAX_ROWS,
 ) -> CatalogCsvResult:
     """Normalise Shopify exports and simple product CSVs to the app schema."""
 
@@ -328,12 +390,12 @@ def parse_product_csv(
     )
     source_format = "Shopify product export" if is_shopify else "standard product CSV"
 
-    groups: list[tuple[str, pd.DataFrame]] = []
+    groups: Iterable[tuple[str, pd.DataFrame]]
     if is_shopify:
         handle_column = columns["handle"]
         frame[handle_column] = frame[handle_column].replace("", pd.NA).ffill().fillna("")
-        for key, group in frame.groupby(handle_column, sort=False, dropna=False):
-            groups.append((str(key).strip(), group))
+        grouped = frame.groupby(handle_column, sort=False, dropna=False)
+        groups = ((str(key).strip(), group) for key, group in grouped)
     else:
         key_column = columns.get("id") or columns.get("handle")
         if key_column:
@@ -342,11 +404,19 @@ def parse_product_csv(
                 for index, value in enumerate(frame[key_column].tolist())
             ]
             keyed = frame.assign(__catalogue_group=keys)
-            for key, group in keyed.groupby("__catalogue_group", sort=False):
-                group = group.drop(columns=["__catalogue_group"])
-                groups.append((str(key).strip(), group))
+            grouped = keyed.groupby("__catalogue_group", sort=False)
+            groups = (
+                (
+                    str(key).strip(),
+                    group.drop(columns=["__catalogue_group"]),
+                )
+                for key, group in grouped
+            )
         else:
-            groups = [(str(index), frame.iloc[[index]]) for index in range(len(frame))]
+            groups = (
+                (str(index), frame.iloc[[index]])
+                for index in range(len(frame))
+            )
 
     products: list[dict[str, Any]] = []
     skipped = 0
