@@ -48,7 +48,7 @@ PALETTE = [PINK, INK, LILAC, "#e8a846", "#6f8e84", "#d46262"]
 CATALOGUE_CSV = "Upload CSV"
 CATALOGUE_API = "Shopify API"
 CATALOGUE_SELECTOR_KEY = "catalogue_source_selector_v2"
-APP_BUILD = "2026.07.22.8"
+APP_BUILD = "2026.07.25.1"
 DECISION_COLORS = {
     "Act now": PINK,
     "Test this week": "#e8a846",
