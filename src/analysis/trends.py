@@ -109,18 +109,11 @@ FASHION_CONTEXT = {
 }
 
 BROAD_SINGLE_TOKENS = {
-    "accessory", "accessories", "apparel", "bag", "bags", "belt", "belts",
-    "blazer", "blazers", "boot", "boots", "bottom", "bottoms", "bracelet",
-    "bracelets", "cardigan", "cardigans", "clothes", "clothing", "coat", "coats",
-    "dress", "dresses", "earring", "earrings", "fashion", "footwear", "garment",
-    "garments", "handbag", "handbags", "heel", "heels", "jacket", "jackets",
-    "jean", "jeans", "jewellery", "jewelry", "knitwear", "loafer", "loafers",
-    "necklace", "necklaces", "outfit", "outfits", "pant", "pants", "pattern",
-    "patterns", "print", "prints", "pump", "pumps", "sandal", "sandals", "scarf",
-    "scarves", "shirt", "shirts", "shoe", "shoes", "silhouette", "silhouettes",
-    "skirt", "skirts", "sneaker", "sneakers", "style", "styles", "suit", "suits",
-    "sweater", "sweaters", "top", "tops", "trainer", "trainers", "trend", "trends",
-    "trouser", "trousers", "tshirt", "tshirts", "wear",
+    "accessory", "accessories", "apparel", "bag", "bags", "clothes", "clothing",
+    "fashion", "footwear", "garment", "garments", "handbag", "handbags",
+    "jewellery", "jewelry", "outfit", "outfits", "pattern", "patterns", "print",
+    "prints", "shoe", "shoes", "silhouette", "silhouettes", "style", "styles",
+    "trend", "trends", "wear",
 }
 
 GENERIC_FASHION_FILLERS = {
@@ -131,8 +124,8 @@ GENERIC_FASHION_FILLERS = {
 }
 
 VAGUE_SINGLE_TOKENS = {
-    "aesthetic", "chic", "classic", "color", "colour", "core", "design", "element",
-    "mini", "maxi", "platform", "viral",
+    "aesthetic", "chic", "classic", "color", "colour", "design", "element",
+    "platform", "viral",
 }
 
 PLATFORM_ONLY_TOKENS = {
@@ -140,30 +133,34 @@ PLATFORM_ONLY_TOKENS = {
     "twitter", "x",
 }
 
+PERMANENT_BLOCKLIST = frozenset(
+    BROAD_SINGLE_TOKENS | VAGUE_SINGLE_TOKENS | PLATFORM_ONLY_TOKENS
+)
+
 # A candidate must contain at least one concrete fashion-domain cue. This is
 # intentionally stricter than the broad-term filter: posts from fashion sources
 # can still mention unrelated ideas such as interiors, wellness or kindness.
 FASHION_PRODUCT_TOKENS = {
     "accessory", "accessories", "apparel", "bag", "bags", "belt", "belts",
     "blazer", "blazers", "blouse", "blouses", "boot", "boots", "bracelet",
-    "bracelets", "cardigan", "cardigans", "clutch", "clutches", "coat",
+    "bracelets", "bottom", "bottoms", "cardigan", "cardigans", "clutch", "clutches", "coat",
     "coats", "corset", "corsets", "dress", "dresses", "earring", "earrings",
     "flat", "flats", "footwear", "gown", "gowns", "handbag", "handbags",
     "heel", "heels", "jacket", "jackets", "jean", "jeans", "jewellery",
-    "jewelry", "loafer", "loafers", "necklace", "necklaces", "outfit",
+    "jewelry", "knitwear", "loafer", "loafers", "necklace", "necklaces", "outfit",
     "outfits", "pant", "pants", "pump", "pumps", "sandal", "sandals",
     "scarf", "scarves", "shirt", "shirts", "shoe", "shoes", "silhouette",
     "silhouettes", "skirt", "skirts", "sneaker", "sneakers", "suit", "suits",
     "sweater", "sweaters", "tie", "ties", "top", "tops", "tote", "totes",
-    "trainer", "trainers", "trouser", "trousers", "vest", "vests", "watch",
+    "trainer", "trainers", "trouser", "trousers", "tshirt", "tshirts", "vest", "vests", "watch",
     "watches",
 }
 
 FASHION_STYLE_TOKENS = {
     "animal", "archive", "athleisure", "ballet", "balletcore", "barrel",
     "boho", "bohemian", "burgundy", "capri", "charm", "coastal", "coquette",
-    "corsetry", "crochet", "denim", "drop", "gorpcore", "lace", "leather",
-    "leopard", "maxi", "metallic", "minimalist", "maximalist", "nautical",
+    "core", "corsetry", "crochet", "denim", "drop", "gorpcore", "lace", "leather",
+    "leopard", "maxi", "metallic", "mini", "minimalist", "maximalist", "nautical",
     "polka", "preloved", "preowned", "print", "raffia", "resale", "satin",
     "sheer", "silk", "street", "streetwear", "suede", "tailoring", "tweed",
     "vintage", "waist", "woven", "y2k",
@@ -218,13 +215,14 @@ def generic_trend_reason(value: str) -> str:
     if phrase in CANONICAL_PHRASES:
         return ""
     tokens = set(phrase.split())
-    if len(tokens) == 1 and tokens & BROAD_SINGLE_TOKENS:
+    # The permanent blocklist is exact-name only. This blocks ``shoes`` but
+    # keeps commercially useful phrases such as ``boat shoes``; likewise,
+    # ``bags`` is blocked while ``east west bags`` remains eligible.
+    if phrase in BROAD_SINGLE_TOKENS:
         return "Generic product or fashion category"
-    if len(tokens) == 1 and tokens & VAGUE_SINGLE_TOKENS:
+    if phrase in VAGUE_SINGLE_TOKENS:
         return "Vague descriptor without a product or defining attribute"
-    if tokens <= BROAD_SINGLE_TOKENS | GENERIC_FASHION_FILLERS:
-        return "Only broad fashion/category words"
-    if tokens <= PLATFORM_ONLY_TOKENS | GENERIC_FASHION_FILLERS:
+    if phrase in PLATFORM_ONLY_TOKENS:
         return "Platform or source name, not a fashion trend"
     if not (
         tokens & FASHION_PRODUCT_TOKENS
@@ -236,9 +234,9 @@ def generic_trend_reason(value: str) -> str:
 
 
 def generic_term_catalogue() -> list[str]:
-    """Return the permanent single-term blocklist for transparent UI display."""
+    """Return the exact-name permanent blocklist for transparent UI display."""
 
-    return sorted(BROAD_SINGLE_TOKENS | VAGUE_SINGLE_TOKENS | PLATFORM_ONLY_TOKENS)
+    return sorted(PERMANENT_BLOCKLIST)
 
 
 def _audit_filtered(
