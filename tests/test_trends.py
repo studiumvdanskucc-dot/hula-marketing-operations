@@ -196,20 +196,27 @@ def test_generic_category_filter_keeps_specific_combinations() -> None:
     for broad in (
         "bag",
         "bags",
-        "trousers",
         "garments",
-        "designer bags",
-        "mini",
         "ebay",
+        "fashion",
+        "shoes",
     ):
         assert generic_trend_reason(broad)
 
     for specific in (
         "black bags",
         "red trousers",
+        "trousers",
+        "designer bags",
+        "mini",
+        "loafers",
+        "jeans",
+        "blazers",
         "mini bags",
         "raffia bags",
         "east west bags",
+        "boat shoes",
+        "mary jane shoes",
     ):
         assert generic_trend_reason(specific) == ""
 
