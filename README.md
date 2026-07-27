@@ -1,6 +1,6 @@
 # HULA Trend Intelligence
 
-Current build: **2026.07.22.8**. The build number appears at the bottom of the app sidebar so you can confirm that the global-fashion version is running.
+Current build: **2026.07.26.1**. The build number appears at the bottom of the app sidebar so you can confirm that the commercial-priority, large-catalogue global-fashion version is running.
 
 An editorial, data-led Streamlit workflow for deciding which HULA products to feature in weekly marketing. It discovers fashion signals, measures momentum, matches them to the selected HULA catalogue, and turns selected opportunities into campaign briefs.
 
@@ -17,7 +17,8 @@ The interface uses the supplied HULA logo and the `Data Sciences by Teri` lock-u
 - **Lightweight Google Trends** — SerpApi replaces the memory-heavy Google Actor and unreliable direct webpage request; the full Google plan is capped at five API searches.
 - **Apify X memory recovery** — inspects and stops active HULA X runs, applies hard Actor timeouts and prevents one capacity error from being repeated across the whole search plan.
 - **Google cache** — reuses a live 24-hour snapshot on repeated refreshes and retains recent live evidence during a temporary provider outage.
-- **Rolling X listening** — five open topic families and a configurable expert panel, each measured in separate current and previous seven-day windows.
+- **Commercial-priority panel** — Data But Make It Fashion, Who What Wear, Who What Wear UK, Lyst and Tagwalk lead the editorial review; the three stable X accounts receive 3× the evidence weight of supporting sources.
+- **Rolling X listening** — five open topic families and a two-tier source panel, each measured in separate current and previous seven-day windows.
 - **Noise controls** — cross-query deduplication, privacy-safe author breadth, engagement per view, promotional-content checks and dominant-author penalties.
 - **Semantic topic grouping** — Qwen groups aggregated aliases such as `ballet pumps` and `ballet flats`; a local fashion ontology and lexical method remain available if Qwen fails.
 - **Fashion-only guardrail** — unrelated social and search topics are removed before scoring, matching or display.
@@ -32,7 +33,7 @@ flowchart TD
     D --> D1["Uploaded CSV snapshot"]
     D --> D2["Shopify read-only API"]
     C --> C1["Open topic discovery"]
-    C --> C2["Expert validation"]
+    C --> C2["Commercial-source validation"]
     B --> E["Evidence scoring"]
     C1 --> E
     C2 --> E
@@ -55,7 +56,7 @@ cp .env.example .env
 streamlit run app.py
 ```
 
-If an older copy is already running, stop it with `Control + C` before starting this folder. Seeing **Build 2026.07.22.8** at the bottom of the sidebar confirms that Terminal opened the updated build.
+If an older copy is already running, stop it with `Control + C` before starting this folder. Seeing **Build 2026.07.26.1** at the bottom of the sidebar confirms that Terminal opened the updated build.
 
 ## Hybrid mode and error reporting
 
@@ -101,13 +102,18 @@ The selected route is saved in the aggregate snapshot. A Wednesday refresh conti
 The external trend score uses the evidence that is actually available:
 
 ```text
-45% Google Trends worldwide
-30% open X topic momentum
-15% expert-fashion confirmation
+35% Google Trends worldwide
+20% open X topic momentum
+35% curated commercial-source confirmation
 10% TikTok/Pinterest visual validation (reserved until connected)
 ```
 
 Unavailable sources are excluded and the remaining weights are renormalised; they are not treated as zero. Open X momentum rewards independent-author breadth and growth, engagement per view, topic-family breadth and novelty. It is reduced when duplicates, promotional posts or one dominant author weaken the sample.
+
+Within the 35% commercial component, automated evidence from Who What Wear,
+Who What Wear UK and Lyst receives a 3× source multiplier. Data But Make It
+Fashion and Tagwalk remain high-priority checks through their official
+Instagram/site outputs rather than an unauthorised Instagram scraper.
 
 The default product opportunity score is 45% external trend strength, 35% catalogue relevance, 15% content readiness and 5% product freshness. The interface lets the team adjust those weights. The numerical ranking remains deterministic; Qwen enriches labels and creative output but cannot rewrite the score.
 

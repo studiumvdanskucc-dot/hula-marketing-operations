@@ -15,7 +15,7 @@ or prove that a campaign will perform.
 
 The default ScrapeBadger plan covers five open topic families: products,
 colours/materials, shapes/silhouettes, aesthetics, and styling/resale behaviour.
-A separate expert panel acts as validation. Every search is run twice:
+A separate two-tier source panel acts as validation. Every search is run twice:
 
 - current seven days;
 - previous seven days.
@@ -39,7 +39,8 @@ For each topic the app records:
 - author and post growth;
 - engagement per 1,000 views when views are available;
 - number of independent open query families;
-- expert-panel mentions and authors;
+- commercial-panel mentions and authors;
+- high-priority commercial mentions and weighted source breadth;
 - novelty against the previous four weeks of saved snapshots;
 - duplicate, promotional and dominant-author indicators.
 
@@ -75,13 +76,17 @@ topic contains many cross-query duplicates, likely promotional posts, low
 author coverage or excessive concentration in one author. This makes it harder
 for one highly active commercial account to manufacture a trend.
 
-### Expert component
+### Commercial-source component
 
-Expert evidence is scored independently from open discovery using current
-expert-author breadth, expert mention growth and engagement per view. Expert
-accounts can confirm an open topic but cannot create open-conversation growth.
-The account list is configurable and should be reviewed quarterly for relevance
-and activity.
+Commercial-source evidence is scored independently from open discovery using
+current source breadth, mention growth, engagement per view and source
+authority. Automated posts from Who What Wear, Who What Wear UK and Lyst
+receive a 3× evidence multiplier; supporting editorial, runway, resale and
+regional accounts receive 1×. The wider five-source priority list also includes
+Data But Make It Fashion and Tagwalk, which are checked through their official
+Instagram/site outputs rather than silently scraped from Instagram. Commercial
+sources can confirm an open topic but cannot create open-conversation growth.
+The lists should be reviewed quarterly for relevance and activity.
 
 X data remains a listening sample, not a census. Actor query design, platform
 demographics and access conditions affect the result.
@@ -128,9 +133,9 @@ saved in the snapshot or safe diagnostic report.
 The target evidence mix is:
 
 ```text
-45% Google Trends worldwide
-30% open X topic momentum
-15% expert-fashion confirmation
+35% Google Trends worldwide
+20% open X topic momentum
+35% curated commercial-source confirmation
 10% visual validation from TikTok/Pinterest
 ```
 
@@ -140,7 +145,8 @@ renormalised; missing evidence is not silently treated as a zero. The snapshot
 stores the effective component weights used for every trend.
 
 Confidence is **High** when Google and open X independently support the same
-canonical idea, **Medium** when at least two other components agree, and
+canonical idea, or when a priority commercial source agrees with either Google
+or open X. It is **Medium** when at least two other components agree, and
 **Exploratory** when only one component is available.
 
 ## Catalogue matching

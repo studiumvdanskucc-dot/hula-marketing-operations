@@ -363,6 +363,14 @@ class ApifyXConnector:
                     post["listening_window"] = str(specification.get("window", ""))
                     post["is_expert"] = channel == "expert"
                     post["evidence_channels"] = [channel]
+                    if channel == "expert":
+                        post["expert_tier"] = str(
+                            specification.get("expert_tier", "expert-support")
+                        )
+                        post["expert_tiers"] = [post["expert_tier"]]
+                        post["expert_weight"] = float(
+                            specification.get("expert_weight") or 1.0
+                        )
                 all_posts.extend(posts)
                 runs.append(
                     {

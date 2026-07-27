@@ -1,5 +1,31 @@
 # Changelog
 
+## Build 2026.07.26.1 — Commercial Priority Sources
+
+- Rebalanced the external trend score to 35% Google Trends worldwide, 20% open
+  X discovery, 35% curated commercial-source confirmation and 10% reserved
+  visual validation.
+- Added a 3× evidence multiplier for the stable X accounts of Who What Wear,
+  Who What Wear UK and Lyst; supporting fashion sources retain 1× weight.
+- Added Data But Make It Fashion and Tagwalk to the high-priority editorial
+  hierarchy through their official Instagram/site outputs without introducing
+  an unauthorised Instagram scraper.
+- Added priority-source mentions, weighted breadth and commercial authority to
+  the deterministic score and dashboard methodology.
+- Preserved worldwide Google Trends, the fashion-only guardrail and the
+  150 MB / 400,000-row large-catalogue importer.
+
+## Build 2026.07.25.1 — Large Catalogue Upload
+
+- Raised the Streamlit catalogue upload ceiling from 20 MB to 150 MB.
+- Raised the source-row safety limit from 50,000 to 400,000 rows.
+- Reduced large-export memory usage by reading only the catalogue fields used
+  by the dashboard instead of every Shopify export column.
+- Changed product grouping to stream one group at a time rather than retaining
+  thousands of grouped DataFrames in memory.
+- Validated the importer against HULA's 102.7 MiB, 325,149-row merged export:
+  56,060 products were normalised in under ten seconds in the test environment.
+
 ## Build 2026.07.22.8 — Global Fashion Guardrail
 
 - Changed Google Trends from Hong Kong to worldwide. Worldwide SerpApi requests

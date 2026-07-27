@@ -56,14 +56,18 @@ def demo_trends() -> list[dict[str, Any]]:
                 "engagement_per_1000_views": round(18 + seed * 1.7, 1),
                 "source_breadth": 4,
                 "expert_score": max(40, x_score - 8),
+                "commercial_source_score": max(40, x_score - 8),
                 "expert_mentions": 3 + seed,
                 "expert_authors": 2 + seed // 2,
+                "commercial_priority_mentions": 2 + seed // 2,
+                "commercial_priority_authors": 2,
+                "commercial_weighted_mentions": 6 + seed,
                 "duplicate_rate": 4.0 + seed,
                 "spam_rate": 2.0,
                 "evidence_quality": 91.0 - seed,
                 "novelty_score": max(0, 100 - seed * 12),
                 "confidence": "High",
-                "sources": ["Google Trends", "Open X topics", "Expert fashion panel"],
+                "sources": ["Google Trends", "Open X topics", "Priority commercial panel"],
                 "stage": stage,
                 "why_now": (
                     f"Demo signal: search momentum is {search_growth:+.0f}% and X conversation "
@@ -148,7 +152,8 @@ def demo_snapshot() -> dict[str, Any]:
                 "unique": 0,
                 "duplicates_removed": 0,
                 "semantic_clustering": "illustrative",
-                "expert_accounts": 16,
+                "expert_accounts": 14,
+                "priority_commercial_accounts": 3,
             },
             "warnings": [
                 "Demo data is illustrative. Add credentials and select Refresh data for live evidence."

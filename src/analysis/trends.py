@@ -182,9 +182,9 @@ CATEGORY_RULES = {
 }
 
 SOURCE_WEIGHTS = {
-    "google": 0.45,
-    "open_x": 0.30,
-    "expert": 0.15,
+    "google": 0.35,
+    "open_x": 0.20,
+    "expert": 0.35,
     "visual": 0.10,
 }
 
@@ -624,7 +624,33 @@ def _author_key(post: dict[str, Any]) -> str:
     return str(post.get("author_hash") or f"unknown:{post.get('post_hash', id(post))}")
 
 
-def _growth(current: int, previous: int) -> float:
+def _expert_weight(post: dict[str, Any]) -> float:
+    try:
+        return max(1.0, min(3.0, float(post.get("expert_weight") or 1.0)))
+    except (TypeError, ValueError):
+        return 1.0
+
+
+def _is_priority_expert(post: dict[str, Any]) -> bool:
+    tiers = {
+        str(value)
+        for value in (
+            post.get("expert_tiers")
+            or ([post.get("expert_tier")] if post.get("expert_tier") else [])
+        )
+    }
+    return "commercial-priority" in tiers or _expert_weight(post) > 1.0
+
+
+def _weighted_author_breadth(posts: list[dict[str, Any]]) -> float:
+    author_weights: dict[str, float] = {}
+    for post in posts:
+        key = _author_key(post)
+        author_weights[key] = max(author_weights.get(key, 0.0), _expert_weight(post))
+    return sum(author_weights.values())
+
+
+def _growth(current: float, previous: float) -> float:
     return 100 * ((current + 1) / (previous + 1) - 1)
 
 
@@ -702,10 +728,33 @@ def extract_x_signals(
         current_authors = {_author_key(post) for post in current}
         previous_authors = {_author_key(post) for post in previous}
         expert_authors = {_author_key(post) for post in current_expert}
+        priority_expert = [post for post in current_expert if _is_priority_expert(post)]
+        previous_priority_expert = [
+            post for post in previous_expert if _is_priority_expert(post)
+        ]
+        priority_expert_authors = {
+            _author_key(post) for post in priority_expert
+        }
+        weighted_expert_mentions = sum(
+            _expert_weight(post) for post in current_expert
+        )
+        previous_weighted_expert_mentions = sum(
+            _expert_weight(post) for post in previous_expert
+        )
+        weighted_expert_authors = _weighted_author_breadth(current_expert)
+        previous_weighted_expert_authors = _weighted_author_breadth(
+            previous_expert
+        )
         engagement = sum(int(post.get("engagement") or 0) for post in current)
         views = sum(int(post.get("views") or 0) for post in current)
-        expert_engagement = sum(int(post.get("engagement") or 0) for post in current_expert)
-        expert_views = sum(int(post.get("views") or 0) for post in current_expert)
+        expert_engagement = sum(
+            _expert_weight(post) * int(post.get("engagement") or 0)
+            for post in current_expert
+        )
+        expert_views = sum(
+            _expert_weight(post) * int(post.get("views") or 0)
+            for post in current_expert
+        )
         raw_return_count = sum(max(1, int(post.get("duplicate_count") or 1)) for post in current)
         duplicate_rate = max(0.0, (raw_return_count - len(current)) / max(raw_return_count, 1))
         spam_rate = sum(bool(post.get("is_probable_promo")) for post in current) / max(len(current), 1)
@@ -717,7 +766,8 @@ def extract_x_signals(
             group
             for post in current
             for group in (post.get("listening_groups") or [post.get("listening_group", "unlabelled")])
-            if group and not str(group).startswith("expert")
+            if group
+            and not str(group).startswith(("expert", "commercial-priority"))
         }
         real_author_coverage = sum(bool(post.get("author_hash")) for post in current) / max(len(current), 1)
         dominance_penalty = max(0.0, dominant_author_share - 0.35)
@@ -751,6 +801,23 @@ def extract_x_signals(
                 "expert_mention_growth": round(_growth(len(current_expert), len(previous_expert)), 1),
                 "expert_authors": len(expert_authors),
                 "expert_engagement_per_1000_views": round(1000 * expert_engagement / expert_views, 2) if expert_views else 0.0,
+                "commercial_priority_mentions": len(priority_expert),
+                "previous_commercial_priority_mentions": len(
+                    previous_priority_expert
+                ),
+                "commercial_priority_authors": len(priority_expert_authors),
+                "commercial_weighted_mentions": round(
+                    weighted_expert_mentions, 1
+                ),
+                "previous_commercial_weighted_mentions": round(
+                    previous_weighted_expert_mentions, 1
+                ),
+                "commercial_weighted_authors": round(
+                    weighted_expert_authors, 1
+                ),
+                "previous_commercial_weighted_authors": round(
+                    previous_weighted_expert_authors, 1
+                ),
                 "duplicate_rate": round(duplicate_rate * 100, 1),
                 "spam_rate": round(spam_rate * 100, 1),
                 "dominant_author_share": round(dominant_author_share * 100, 1),
@@ -768,8 +835,18 @@ def extract_x_signals(
     post_growth_rank = _rank_scores([row["mention_growth"] for row in rows])
     engagement_rank = _rank_scores([math.log1p(row["engagement_per_1000_views"]) for row in rows])
     volume_rank = _rank_scores([math.log1p(row["mentions"]) for row in rows])
-    expert_author_rank = _rank_scores([math.log1p(row["expert_authors"]) for row in rows])
-    expert_growth_rank = _rank_scores([row["expert_mention_growth"] for row in rows])
+    expert_author_rank = _rank_scores(
+        [math.log1p(row["commercial_weighted_authors"]) for row in rows]
+    )
+    expert_growth_rank = _rank_scores(
+        [
+            _growth(
+                row["commercial_weighted_mentions"],
+                row["previous_commercial_weighted_mentions"],
+            )
+            for row in rows
+        ]
+    )
     expert_engagement_rank = _rank_scores(
         [math.log1p(row["expert_engagement_per_1000_views"]) for row in rows]
     )
@@ -793,14 +870,35 @@ def extract_x_signals(
             row["open_x_score"] = None
             row["x_score"] = None
         if int(row["expert_mentions"]) or int(row["previous_expert_mentions"]):
-            raw_expert = (
-                0.55 * expert_author_rank[index]
-                + 0.25 * expert_growth_rank[index]
-                + 0.20 * expert_engagement_rank[index]
+            authority_score = min(
+                100.0,
+                35.0 * float(row["commercial_priority_authors"])
+                + 8.0
+                * max(
+                    0.0,
+                    float(row["expert_authors"])
+                    - float(row["commercial_priority_authors"]),
+                ),
             )
-            row["expert_score"] = round(raw_expert * quality_multiplier, 1)
+            raw_expert = (
+                0.35 * expert_author_rank[index]
+                + 0.15 * expert_growth_rank[index]
+                + 0.15 * expert_engagement_rank[index]
+                + 0.35 * authority_score
+            )
+            expert_coverage = min(
+                1.0,
+                float(row["expert_authors"])
+                / max(float(row["expert_mentions"]), 1.0),
+            )
+            commercial_quality_multiplier = 0.85 + 0.15 * expert_coverage
+            row["expert_score"] = round(
+                raw_expert * commercial_quality_multiplier, 1
+            )
+            row["commercial_source_score"] = row["expert_score"]
         else:
             row["expert_score"] = None
+            row["commercial_source_score"] = None
     return sorted(
         rows,
         key=lambda row: (
@@ -897,8 +995,19 @@ def _why_now(row: dict[str, Any]) -> str:
             f"open X discussion is {float(row.get('mention_growth') or 0):+.0f}% week on week across {int(row.get('unique_authors') or 0)} independent authors"
         )
     if row.get("expert_score") is not None:
+        priority_mentions = int(
+            row.get("commercial_priority_mentions") or 0
+        )
+        priority_clause = (
+            f", including {priority_mentions} high-priority commercial signal"
+            f"{'' if priority_mentions == 1 else 's'}"
+            if priority_mentions
+            else ""
+        )
         clauses.append(
-            f"the expert panel contributed {int(row.get('expert_mentions') or 0)} current mentions"
+            f"the curated commercial panel contributed "
+            f"{int(row.get('expert_mentions') or 0)} current mentions"
+            f"{priority_clause}"
         )
     if not clauses:
         return "The available evidence is directional and should be validated before use."
@@ -965,7 +1074,14 @@ def merge_trend_signals(
         has_open_x = "open_x" in available
         has_expert = "expert" in available
         has_visual = "visual" in available
+        has_priority_commercial = bool(
+            int(social.get("commercial_priority_mentions") or 0)
+        )
         if has_google and has_open_x and (has_expert or has_visual):
+            confidence = "High"
+        elif has_priority_commercial and has_google:
+            confidence = "High"
+        elif has_priority_commercial and has_open_x:
             confidence = "High"
         elif has_google and has_open_x:
             confidence = "High"
@@ -978,7 +1094,12 @@ def merge_trend_signals(
             for source, present in (
                 ("Google Trends", has_google),
                 ("Open X topics", has_open_x),
-                ("Expert fashion panel", has_expert),
+                (
+                    "Priority commercial panel"
+                    if has_priority_commercial
+                    else "Supporting fashion panel",
+                    has_expert,
+                ),
                 ("Visual validation", has_visual),
             )
             if present
@@ -1002,6 +1123,7 @@ def merge_trend_signals(
             "x_score": round(float(components["open_x"]), 1) if components["open_x"] is not None else None,
             "open_x_score": round(float(components["open_x"]), 1) if components["open_x"] is not None else None,
             "expert_score": round(float(components["expert"]), 1) if components["expert"] is not None else None,
+            "commercial_source_score": round(float(components["expert"]), 1) if components["expert"] is not None else None,
             "visual_score": round(float(components["visual"]), 1) if components["visual"] is not None else None,
             "search_interest": google.get("search_interest"),
             "search_baseline": google.get("search_baseline"),
@@ -1017,6 +1139,15 @@ def merge_trend_signals(
             "source_breadth": int(social.get("source_breadth") or 0),
             "expert_mentions": int(social.get("expert_mentions") or 0),
             "expert_authors": int(social.get("expert_authors") or 0),
+            "commercial_priority_mentions": int(
+                social.get("commercial_priority_mentions") or 0
+            ),
+            "commercial_priority_authors": int(
+                social.get("commercial_priority_authors") or 0
+            ),
+            "commercial_weighted_mentions": float(
+                social.get("commercial_weighted_mentions") or 0
+            ),
             "duplicate_rate": float(social.get("duplicate_rate") or 0),
             "spam_rate": float(social.get("spam_rate") or 0),
             "evidence_quality": float(social.get("evidence_quality") or 0),

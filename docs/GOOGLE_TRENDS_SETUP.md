@@ -1,6 +1,6 @@
 # Google Trends through SerpApi
 
-Build `2026.07.22.8` uses worldwide Google Trends through SerpApi.
+Build `2026.07.26.1` uses worldwide Google Trends through SerpApi.
 SerpApi makes the Google-facing request and returns structured Trends data, so
 the Streamlit app does not launch another Actor and does not connect to
 `trends.google.com` directly.

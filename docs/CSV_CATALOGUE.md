@@ -38,4 +38,7 @@ Friendly alternatives such as `Product Name`, `Brand`, `Category`, `Quantity`, `
 
 The app saves only the normalised product fields inside `data/latest_snapshot.json`; it does not keep a second copy of the raw uploaded CSV. Future Wednesday refreshes reuse that catalogue until a replacement CSV is applied or the team switches to the Shopify API.
 
-The importer accepts files up to 20 MB and 50,000 source rows. Review warnings before applying the catalogue, especially missing inventory, images or created dates.
+The importer accepts files up to 150 MB and 400,000 source rows. Large Shopify
+exports are read using only the catalogue columns the dashboard needs, which
+keeps memory usage manageable. Review warnings before applying the catalogue,
+especially missing inventory, images or created dates.

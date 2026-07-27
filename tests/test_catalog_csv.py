@@ -66,6 +66,20 @@ def test_csv_requires_a_title_or_shopify_handle() -> None:
         parse_product_csv(b"sku,price\nWA1,1000\n")
 
 
+def test_csv_rejects_payloads_above_configured_upload_limit(monkeypatch) -> None:
+    monkeypatch.setattr("src.connectors.catalog_csv.MAX_CSV_SIZE_BYTES", 8)
+
+    with pytest.raises(CatalogCsvError, match="smaller than 150 MB"):
+        parse_product_csv(b"123456789")
+
+
+def test_csv_row_limit_can_handle_large_export_guard() -> None:
+    payload = b"title,price\nBag 1,100\nBag 2,200\n"
+
+    with pytest.raises(CatalogCsvError, match="safety limit is 1"):
+        parse_product_csv(payload, max_rows=1)
+
+
 def test_weekly_refresh_keeps_the_persisted_csv_catalogue(tmp_path, monkeypatch) -> None:
     snapshot_path = tmp_path / "latest.json"
     csv_product = {

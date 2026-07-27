@@ -138,6 +138,60 @@ def test_x_score_tracks_unique_authors_and_expert_confirmation() -> None:
     assert ballet["evidence_quality"] > 80
 
 
+def test_priority_commercial_source_outweighs_supporting_source() -> None:
+    now = datetime(2026, 7, 21, tzinfo=timezone.utc)
+    posts = [
+        {
+            "text": "East west bags lead the new handbag trend",
+            "created_at": (now - timedelta(days=1)).isoformat(),
+            "author_hash": "priority-author",
+            "post_hash": "priority-post",
+            "engagement": 20,
+            "views": 1000,
+            "listening_window": "current",
+            "listening_groups": ["commercial-priority-1"],
+            "evidence_channels": ["expert"],
+            "is_expert": True,
+            "expert_tier": "commercial-priority",
+            "expert_weight": 3.0,
+        },
+        {
+            "text": "Raffia bags lead the new handbag trend",
+            "created_at": (now - timedelta(days=1)).isoformat(),
+            "author_hash": "support-author",
+            "post_hash": "support-post",
+            "engagement": 20,
+            "views": 1000,
+            "listening_window": "current",
+            "listening_groups": ["expert-support-1"],
+            "evidence_channels": ["expert"],
+            "is_expert": True,
+            "expert_tier": "expert-support",
+            "expert_weight": 1.0,
+        },
+    ]
+    clusters = [
+        {
+            "name": "East–West Bags",
+            "aliases": ["east west bags"],
+        },
+        {
+            "name": "Raffia Bags",
+            "aliases": ["raffia bags"],
+        },
+    ]
+
+    signals = extract_x_signals(posts, now=now, clusters=clusters)
+    priority = next(row for row in signals if row["name"] == "East–West Bags")
+    supporting = next(row for row in signals if row["name"] == "Raffia Bags")
+
+    assert priority["commercial_priority_mentions"] == 1
+    assert priority["commercial_weighted_mentions"] == 3.0
+    assert supporting["commercial_priority_mentions"] == 0
+    assert supporting["commercial_weighted_mentions"] == 1.0
+    assert priority["commercial_source_score"] > supporting["commercial_source_score"]
+
+
 def test_generic_category_filter_keeps_specific_combinations() -> None:
     for broad in (
         "bag",

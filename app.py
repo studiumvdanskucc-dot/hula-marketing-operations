@@ -14,7 +14,10 @@ import plotly.graph_objects as go
 import streamlit as st
 from PIL import Image, ImageChops
 
-from src.analysis.listening import build_listening_plan
+from src.analysis.listening import (
+    PRIORITY_COMMERCIAL_SOURCES,
+    build_listening_plan,
+)
 from src.analysis.matching import match_products
 from src.analysis.trends import (
     generic_term_catalogue,
@@ -48,7 +51,7 @@ PALETTE = [PINK, INK, LILAC, "#e8a846", "#6f8e84", "#d46262"]
 CATALOGUE_CSV = "Upload CSV"
 CATALOGUE_API = "Shopify API"
 CATALOGUE_SELECTOR_KEY = "catalogue_source_selector_v2"
-APP_BUILD = "2026.07.25.1"
+APP_BUILD = "2026.07.26.1"
 DECISION_COLORS = {
     "Act now": PINK,
     "Test this week": "#e8a846",
@@ -227,7 +230,13 @@ def business_decision(trend: dict) -> str:
     score = float(trend.get("score") or 0)
     sources = set(trend.get("sources") or [])
     cross_source = "Google Trends" in sources and bool(
-        sources & {"Open X topics", "Expert fashion panel", "Visual validation"}
+        sources
+        & {
+            "Open X topics",
+            "Priority commercial panel",
+            "Supporting fashion panel",
+            "Visual validation",
+        }
     )
     confidence = str(trend.get("confidence") or "")
     if score >= 75 and cross_source and confidence in {"High", "Medium"}:
@@ -469,7 +478,11 @@ def this_week(snapshot: dict) -> None:
     unique_products = len({row.get("product_id") for row in snapshot.get("recommendations", [])})
     metrics = st.columns(4)
     metrics[0].metric("Strongest signal", f"{top_score:.0f}/100", trends[0].get("name") if trends else "—")
-    metrics[1].metric("Cross-source trends", high_confidence, "Google + open X agreement")
+    metrics[1].metric(
+        "Cross-source trends",
+        high_confidence,
+        "search + commercial confirmation",
+    )
     metrics[2].metric("Promotable products", unique_products, "in-stock catalogue matches")
     metrics[3].metric("Updated", updated.strftime("%d %b · %H:%M"), "Hong Kong time")
 
@@ -625,7 +638,8 @@ def trend_radar(snapshot: dict) -> None:
             <div class="score-row"><span>Combined signal</span><strong>{float(selected.get('score', 0)):.0f}</strong></div>
             <div class="score-row"><span>Google component</span><strong>{float(selected.get('google_score') or 0):.0f}</strong></div>
             <div class="score-row"><span>Open X component</span><strong>{float(selected.get('x_score') or 0):.0f}</strong></div>
-            <div class="score-row"><span>Expert-panel component</span><strong>{float(selected.get('expert_score') or 0):.0f}</strong></div>
+            <div class="score-row"><span>Commercial-source component</span><strong>{float(selected.get('expert_score') or 0):.0f}</strong></div>
+            <div class="score-row"><span>Priority-source mentions</span><strong>{int(selected.get('commercial_priority_mentions') or 0)}</strong></div>
             <div class="score-row"><span>Independent authors</span><strong>{int(selected.get('unique_authors') or 0)}</strong></div>
             <div class="score-row"><span>Evidence quality</span><strong>{float(selected.get('evidence_quality') or 0):.0f}</strong></div>
             <div class="score-row"><span>Confidence</span><strong>{html.escape(str(selected.get('confidence', '')))}</strong></div>
@@ -634,7 +648,8 @@ def trend_radar(snapshot: dict) -> None:
         )
         st.caption(
             "Evidence quality penalises duplicated, promotional and author-dominated conversation. "
-            "Expert-panel confirmation is scored separately from open topic discovery."
+            "Commercial-source confirmation is scored separately from open topic discovery; "
+            "the priority accounts receive three times the evidence weight of supporting sources."
         )
 
 
@@ -1078,12 +1093,42 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
     elif not settings.apify_token:
         st.caption("Add APIFY_TOKEN to enable capacity checks.")
 
-    section_header("X listening design", "Topic discovery first, expert validation second")
+    section_header(
+        "Commercial signal hierarchy",
+        "The five sources with the strongest influence on HULA decisions",
+    )
+    st.dataframe(
+        pd.DataFrame(
+            [
+                {
+                    "Priority source": source["name"],
+                    "Account": source["handle"],
+                    "Why HULA uses it": source["role"],
+                    "Current route": source["route"],
+                }
+                for source in PRIORITY_COMMERCIAL_SOURCES
+            ]
+        ),
+        hide_index=True,
+        width="stretch",
+    )
+    st.caption(
+        "The automated X layer applies a 3× evidence multiplier to Who What Wear, "
+        "Who What Wear UK and Lyst. Data But Make It Fashion and Tagwalk remain "
+        "high-priority human checks through their official Instagram/site outputs; "
+        "the app does not silently scrape Instagram."
+    )
+
+    section_header(
+        "X listening design",
+        "Open discovery first, commercial confirmation second",
+    )
     listening_plan = build_listening_plan(
         language=settings.x_language,
         results_per_query=settings.apify_results_per_query,
         expert_results_per_query=settings.apify_expert_results_per_query,
         expert_accounts=settings.x_expert_accounts,
+        priority_accounts=settings.x_priority_accounts,
     )
     open_searches = sum(not row.get("is_expert") for row in listening_plan)
     expert_searches = sum(bool(row.get("is_expert")) for row in listening_plan)
@@ -1091,20 +1136,42 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
     design_metrics = st.columns(4)
     design_metrics[0].metric("Rolling searches", len(listening_plan), "current + previous week")
     design_metrics[1].metric("Open topic searches", open_searches, "five balanced topic families")
-    design_metrics[2].metric("Expert searches", expert_searches, f"{len(settings.x_expert_accounts)} accounts")
+    monitored_accounts = len(
+        {
+            *settings.x_expert_accounts,
+            *settings.x_priority_accounts,
+        }
+    )
+    design_metrics[2].metric(
+        "Source searches",
+        expert_searches,
+        f"{monitored_accounts} accounts",
+    )
     design_metrics[3].metric("Maximum results", f"{max_posts:,}", "before cross-query deduplication")
     st.write(
         "The app runs each topic against a **current seven-day window** and a separate "
         "**previous seven-day window**. Hashtags are accepted when they occur naturally, but the "
-        "search does not depend on hashtags or profiles alone. Expert accounts validate ideas discovered "
-        "in the open conversation; they do not decide the trend by themselves."
+        "search does not depend on hashtags or profiles alone. The commercial-priority accounts "
+        "receive 3× the evidence weight of supporting fashion sources, but cross-source "
+        "confirmation is still required."
     )
     plan_table = pd.DataFrame(
         [
             {
                 "Search": row.get("group_label"),
                 "Window": row.get("window_label"),
-                "Role": "Expert validation" if row.get("is_expert") else "Open discovery",
+                "Role": (
+                    "Priority commercial confirmation"
+                    if row.get("expert_tier") == "commercial-priority"
+                    else "Supporting confirmation"
+                    if row.get("is_expert")
+                    else "Open discovery"
+                ),
+                "Evidence weight": (
+                    f"{float(row.get('expert_weight') or 1):.0f}×"
+                    if row.get("is_expert")
+                    else "1×"
+                ),
                 "Result cap": int((row.get("input") or {}).get("max_results") or 0),
             }
             for row in listening_plan
@@ -1496,9 +1563,9 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
     section_header("External signal", "How the fashion trend score is assembled")
     signal_method = st.columns(4)
     for column, number, title, copy in [
-        (signal_method[0], "45%", "Google Trends HK", "Local search-demand momentum."),
-        (signal_method[1], "30%", "Open X topics", "Independent-author and post growth across broad topic searches."),
-        (signal_method[2], "15%", "Expert panel", "Separate confirmation from trusted fashion sources."),
+        (signal_method[0], "35%", "Google Trends worldwide", "Global search-demand momentum."),
+        (signal_method[1], "20%", "Open X topics", "Independent-author and post growth across broad topic searches."),
+        (signal_method[2], "35%", "Commercial source panel", "Priority confirmation led by the five selected sources."),
         (signal_method[3], "10%", "Visual validation", "Reserved for TikTok or Pinterest evidence when available."),
     ]:
         with column:

@@ -5,7 +5,11 @@ import os
 from dataclasses import dataclass, field
 from typing import Any
 
-from src.analysis.listening import DEFAULT_EXPERT_ACCOUNTS, clean_expert_accounts
+from src.analysis.listening import (
+    DEFAULT_EXPERT_ACCOUNTS,
+    DEFAULT_PRIORITY_COMMERCIAL_ACCOUNTS,
+    clean_expert_accounts,
+)
 
 
 DEFAULT_FASHION_TERMS = (
@@ -91,14 +95,17 @@ def as_terms(value: Any) -> list[str]:
     return list(dict.fromkeys(cleaned)) or list(DEFAULT_FASHION_TERMS)
 
 
-def as_accounts(value: Any) -> list[str]:
+def as_accounts(
+    value: Any,
+    default: tuple[str, ...] = DEFAULT_EXPERT_ACCOUNTS,
+) -> list[str]:
     if not value:
-        return list(DEFAULT_EXPERT_ACCOUNTS)
+        return list(default)
     if isinstance(value, list):
         accounts = value
     else:
         accounts = str(value).replace("\n", ",").split(",")
-    return clean_expert_accounts(accounts) or list(DEFAULT_EXPERT_ACCOUNTS)
+    return clean_expert_accounts(accounts) or list(default)
 
 
 @dataclass(frozen=True)
@@ -123,6 +130,9 @@ class Settings:
     x_language: str = "en"
     x_expert_accounts: list[str] = field(
         default_factory=lambda: list(DEFAULT_EXPERT_ACCOUNTS)
+    )
+    x_priority_accounts: list[str] = field(
+        default_factory=lambda: list(DEFAULT_PRIORITY_COMMERCIAL_ACCOUNTS)
     )
     openrouter_api_key: str = ""
     openrouter_api_url: str = "https://openrouter.ai/api/v1/chat/completions"
@@ -205,6 +215,10 @@ def load_settings() -> Settings:
         ),
         x_language=str(setting("X_LANGUAGE", "en")),
         x_expert_accounts=as_accounts(setting("X_EXPERT_ACCOUNTS", "")),
+        x_priority_accounts=as_accounts(
+            setting("X_PRIORITY_ACCOUNTS", ""),
+            DEFAULT_PRIORITY_COMMERCIAL_ACCOUNTS,
+        ),
         openrouter_api_key=str(setting("OPENROUTER_API_KEY", "")),
         openrouter_api_url=str(
             setting(

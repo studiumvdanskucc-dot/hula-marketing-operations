@@ -14,7 +14,23 @@ def test_listening_plan_has_separate_windows_and_expert_layer() -> None:
     open_rows = [row for row in plan if not row["is_expert"]]
     expert_rows = [row for row in plan if row["is_expert"]]
     assert len(open_rows) == 10
-    assert len(expert_rows) == 2
+    assert len(expert_rows) == 4
+    assert {
+        (row["expert_tier"], row["expert_weight"])
+        for row in expert_rows
+    } == {
+        ("commercial-priority", 3.0),
+        ("expert-support", 1.0),
+    }
+    priority_query = next(
+        row
+        for row in expert_rows
+        if row["expert_tier"] == "commercial-priority"
+        and row["window"] == "current"
+    )["input"]["query"]
+    assert "from:WhoWhatWear" in priority_query
+    assert "from:WhoWhatWearUK" in priority_query
+    assert "from:Lyst" in priority_query
     assert {row["window"] for row in plan} == {"current", "previous"}
     current_query = next(row for row in open_rows if row["window"] == "current")["input"]["query"]
     previous_query = next(row for row in open_rows if row["window"] == "previous")["input"]["query"]
@@ -44,9 +60,13 @@ def test_deduplication_preserves_open_and_expert_provenance() -> None:
                 "listening_group": "expert-1",
                 "evidence_channels": ["expert"],
                 "is_expert": True,
+                "expert_tier": "commercial-priority",
+                "expert_weight": 3.0,
             },
         ]
     )
     assert stats == {"collected": 2, "unique": 1, "duplicates_removed": 1}
     assert unique[0]["evidence_channels"] == ["expert", "open"]
     assert unique[0]["listening_groups"] == ["expert-1", "silhouette"]
+    assert unique[0]["expert_tiers"] == ["commercial-priority"]
+    assert unique[0]["expert_weight"] == 3.0

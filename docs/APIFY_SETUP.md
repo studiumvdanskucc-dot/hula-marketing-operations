@@ -50,7 +50,8 @@ APIFY_RESULTS_PER_QUERY = "50"
 APIFY_EXPERT_RESULTS_PER_QUERY = "35"
 APIFY_MAX_TOTAL_CHARGE_USD = "0.25"
 X_LANGUAGE = "en"
-X_EXPERT_ACCOUNTS = "VogueRunway,VogueBusiness,BoF,WGSN,Lyst,WhoWhatWear,HYPEBEAST,Highsnobiety,Fashionista_com,Dazed,i_D,BritishVogue,VogueHongKong,TatlerAsia,VestiaireCo,therealreal"
+X_PRIORITY_ACCOUNTS = "WhoWhatWear,WhoWhatWearUK,Lyst"
+X_EXPERT_ACCOUNTS = "VogueRunway,VogueBusiness,BoF,WGSN,HYPEBEAST,Highsnobiety,Fashionista_com,Dazed,i_D,BritishVogue,VogueHongKong,TatlerAsia,VestiaireCo,therealreal"
 ```
 
 `APIFY_MAX_TOTAL_CHARGE_USD` is a ceiling for each individual Actor run, while
@@ -69,7 +70,8 @@ The plan avoids relying on only hashtags or only profiles. It contains:
 | Shapes & silhouettes | East–west bags, capris, skirts, shoes and proportion | Current + previous |
 | Aesthetics | Boho, minimalism, archive, street style and related language | Current + previous |
 | Styling & resale | How-to-wear language, outfit ideas, vintage and resale behaviour | Current + previous |
-| Expert panel | A configurable set of fashion/editorial and resale sources | Current + previous |
+| Commercial priority | Who What Wear, Who What Wear UK and Lyst at 3× evidence weight | Current + previous |
+| Supporting panel | A configurable set of fashion/editorial and resale sources at 1× | Current + previous |
 
 Each date window is an independent Advanced Search. This prevents a single
 `Latest` result set from filling almost entirely with the newest posts and makes
@@ -118,7 +120,7 @@ The pipeline also:
 - removes the same post returned by several searches;
 - measures unique authors, not only post volume;
 - uses engagement per view when view counts exist;
-- scores the expert panel separately from open discovery;
+- scores the commercial-priority and supporting panels separately from open discovery;
 - penalises promotional, duplicate and author-dominated evidence;
 - compares the current seven days with a non-overlapping previous seven days.
 

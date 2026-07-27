@@ -105,6 +105,7 @@ def refresh_snapshot(
         "usage_usd": None,
         "semantic_clustering": "local fashion ontology + lexical similarity",
         "expert_accounts": len(settings.x_expert_accounts),
+        "priority_commercial_accounts": len(settings.x_priority_accounts),
     }
     if settings.apify_configured:
         try:
@@ -120,6 +121,7 @@ def refresh_snapshot(
                     results_per_query=settings.apify_results_per_query,
                     expert_results_per_query=settings.apify_expert_results_per_query,
                     expert_accounts=settings.x_expert_accounts,
+                    priority_accounts=settings.x_priority_accounts,
                 )
                 result = apify.run_listening_plan(
                     listening_plan,

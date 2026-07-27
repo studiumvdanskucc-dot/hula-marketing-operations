@@ -94,8 +94,6 @@ DEFAULT_EXPERT_ACCOUNTS: tuple[str, ...] = (
     "VogueBusiness",
     "BoF",
     "WGSN",
-    "Lyst",
-    "WhoWhatWear",
     "HYPEBEAST",
     "Highsnobiety",
     "Fashionista_com",
@@ -107,6 +105,53 @@ DEFAULT_EXPERT_ACCOUNTS: tuple[str, ...] = (
     "VestiaireCo",
     "therealreal",
 )
+
+# These are the priority sources from the commercial-fashion panel that have
+# stable X accounts and can therefore be collected by the existing governed X
+# connector. Data But Make It Fashion and Tagwalk remain priority editorial
+# sources too, but are reviewed through their official Instagram/site outputs
+# rather than impersonated as X handles.
+DEFAULT_PRIORITY_COMMERCIAL_ACCOUNTS: tuple[str, ...] = (
+    "WhoWhatWear",
+    "WhoWhatWearUK",
+    "Lyst",
+)
+
+PRIORITY_COMMERCIAL_SOURCES: tuple[dict[str, str], ...] = (
+    {
+        "name": "Data But Make It Fashion",
+        "handle": "@databutmakeitfashion",
+        "role": "Quantified popularity and trend comparison",
+        "route": "Official Instagram / website review",
+    },
+    {
+        "name": "Who What Wear",
+        "handle": "@whowhatwear",
+        "role": "Commercial what-to-buy and what-to-wear interpretation",
+        "route": "Automated X source + official editorial review",
+    },
+    {
+        "name": "Who What Wear UK",
+        "handle": "@whowhatwear.uk",
+        "role": "European and London-led commercial interpretation",
+        "route": "Automated X source + official editorial review",
+    },
+    {
+        "name": "Lyst",
+        "handle": "@lyst",
+        "role": "Product and brand shopping demand",
+        "route": "Automated X source + quarterly Lyst Index review",
+    },
+    {
+        "name": "Tagwalk",
+        "handle": "@tagwalk",
+        "role": "Runway frequency, colours, silhouettes and accessories",
+        "route": "Official Instagram / Tagwalk Trends review",
+    },
+)
+
+PRIORITY_EXPERT_MULTIPLIER = 3.0
+SUPPORTING_EXPERT_MULTIPLIER = 1.0
 
 
 def clean_expert_accounts(accounts: Iterable[str]) -> list[str]:
@@ -159,6 +204,7 @@ def build_listening_plan(
     results_per_query: int = 50,
     expert_results_per_query: int = 35,
     expert_accounts: Iterable[str] = DEFAULT_EXPERT_ACCOUNTS,
+    priority_accounts: Iterable[str] = DEFAULT_PRIORITY_COMMERCIAL_ACCOUNTS,
     topic_groups: Iterable[dict[str, Any]] = DEFAULT_TOPIC_GROUPS,
     expert_chunk_size: int = 8,
 ) -> list[dict[str, Any]]:
@@ -195,37 +241,68 @@ def build_listening_plan(
                 }
             )
 
-    accounts = clean_expert_accounts(expert_accounts)
+    priority = clean_expert_accounts(priority_accounts)
+    priority_keys = {account.lower() for account in priority}
+    accounts = [
+        account
+        for account in clean_expert_accounts(expert_accounts)
+        if account.lower() not in priority_keys
+    ]
     expert_chunk_size = max(1, int(expert_chunk_size))
-    chunks = [accounts[index : index + expert_chunk_size] for index in range(0, len(accounts), expert_chunk_size)]
+    priority_chunks = [
+        priority[index : index + expert_chunk_size]
+        for index in range(0, len(priority), expert_chunk_size)
+    ]
+    supporting_chunks = [
+        accounts[index : index + expert_chunk_size]
+        for index in range(0, len(accounts), expert_chunk_size)
+    ]
     for window in windows:
-        for index, chunk in enumerate(chunks, 1):
-            sources = " OR ".join(f"from:{account}" for account in chunk)
-            body = (
-                f"({sources}) "
-                "(fashion OR style OR trend OR trends OR runway OR bag OR shoes OR vintage OR resale)"
-            )
-            plan.append(
-                {
-                    "id": f"expert-{index}:{window['id']}",
-                    "group": f"expert-{index}",
-                    "group_label": f"Expert panel {index}",
-                    "window": window["id"],
-                    "window_label": window["label"],
-                    "is_expert": True,
-                    "input": {
-                        "mode": "Advanced Search",
-                        "query": _query(
-                            body,
-                            since=window["since"],
-                            until=window["until"],
-                            language=language,
-                        ),
-                        "query_type": "Latest",
-                        "max_results": max(10, int(expert_results_per_query)),
-                    },
-                }
-            )
+        tier_chunks = (
+            (
+                "commercial-priority",
+                "Commercial priority",
+                PRIORITY_EXPERT_MULTIPLIER,
+                priority_chunks,
+            ),
+            (
+                "expert-support",
+                "Supporting expert panel",
+                SUPPORTING_EXPERT_MULTIPLIER,
+                supporting_chunks,
+            ),
+        )
+        for tier_id, tier_label, multiplier, chunks in tier_chunks:
+            for index, chunk in enumerate(chunks, 1):
+                sources = " OR ".join(f"from:{account}" for account in chunk)
+                body = (
+                    f"({sources}) "
+                    "(fashion OR style OR trend OR trends OR runway OR bag OR shoes OR vintage OR resale)"
+                )
+                plan.append(
+                    {
+                        "id": f"{tier_id}-{index}:{window['id']}",
+                        "group": f"{tier_id}-{index}",
+                        "group_label": f"{tier_label} {index}",
+                        "window": window["id"],
+                        "window_label": window["label"],
+                        "is_expert": True,
+                        "expert_tier": tier_id,
+                        "expert_weight": multiplier,
+                        "accounts": list(chunk),
+                        "input": {
+                            "mode": "Advanced Search",
+                            "query": _query(
+                                body,
+                                since=window["since"],
+                                until=window["until"],
+                                language=language,
+                            ),
+                            "query_type": "Latest",
+                            "max_results": max(10, int(expert_results_per_query)),
+                        },
+                    }
+                )
     return plan
 
 
@@ -256,6 +333,13 @@ def deduplicate_posts(posts: list[dict[str, Any]]) -> tuple[list[dict[str, Any]]
             row["evidence_channels"] = sorted(
                 set(post.get("evidence_channels") or (["expert"] if post.get("is_expert") else ["open"]))
             )
+            row["expert_weight"] = float(post.get("expert_weight") or 1.0)
+            row["expert_tiers"] = sorted(
+                set(
+                    post.get("expert_tiers")
+                    or ([str(post.get("expert_tier"))] if post.get("expert_tier") else [])
+                )
+            )
             row["duplicate_count"] = max(1, int(post.get("duplicate_count") or 1))
             by_id[key] = row
             continue
@@ -272,6 +356,17 @@ def deduplicate_posts(posts: list[dict[str, Any]]) -> tuple[list[dict[str, Any]]
             | set(post.get("evidence_channels") or (["expert"] if post.get("is_expert") else ["open"]))
         )
         existing["is_expert"] = "expert" in existing["evidence_channels"]
+        existing["expert_weight"] = max(
+            float(existing.get("expert_weight") or 1.0),
+            float(post.get("expert_weight") or 1.0),
+        )
+        existing["expert_tiers"] = sorted(
+            set(existing.get("expert_tiers") or [])
+            | set(
+                post.get("expert_tiers")
+                or ([str(post.get("expert_tier"))] if post.get("expert_tier") else [])
+            )
+        )
         if int(post.get("engagement") or 0) > int(existing.get("engagement") or 0):
             for field in ("likes", "reshares", "replies", "views", "engagement"):
                 existing[field] = post.get(field, existing.get(field))
