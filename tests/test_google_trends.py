@@ -40,6 +40,30 @@ def test_serpapi_comparison_batches_are_anchor_calibrated() -> None:
     assert [point["value"] for point in series["black bags"]] == [20, 30, 50]
 
 
+def test_timeline_values_without_query_names_are_not_assigned_by_position() -> None:
+    terms = ["designer fashion", "black bags"]
+    payloads = [
+        {
+            "interest_over_time": {
+                "timeline_data": [
+                    {
+                        "timestamp": "1782864000",
+                        "values": [
+                            {"extracted_value": 50},
+                            {"extracted_value": 25},
+                        ],
+                    }
+                ]
+            }
+        }
+    ]
+    assert normalize_serpapi_interest(
+        payloads,
+        [terms],
+        "designer fashion",
+    ) == {}
+
+
 def test_serpapi_related_queries_keep_the_seed() -> None:
     rows = normalize_serpapi_related(
         [

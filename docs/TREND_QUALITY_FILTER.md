@@ -6,11 +6,13 @@ therefore removes a label when it contains only generic fashion/category words,
 is vague, names a platform, or has no clear fashion product, material,
 silhouette or style signal.
 
-Examples removed: `bags`, `trousers`, `designer bags`, `Interior Design`,
-`Kindness`, `wellness`, `mini`, `silhouette`, `chic`, `eBay`.
+Examples removed: `bags`, `trousers`, `outfit ideas`, `dress`,
+`Interior Design`, `Kindness`, `wellness`, `mini`, `silhouette`, `chic`,
+`eBay`.
 
-Examples kept: `black bags`, `red trousers`, `mini bags`, `raffia bags`,
-`east–west bags`, `butter yellow`, `polka dots`, `Mary Janes`.
+Examples kept: `sandal`, `sandals`, `designer bags`, `black bags`,
+`red trousers`, `mini dress`, `mini bags`, `raffia bags`, `east–west bags`,
+`butter yellow`, `polka dots`, `Mary Janes`.
 
 The rule runs at X phrase extraction, semantic clustering, Google candidate
 selection, Google-series scoring and stored-snapshot loading. This prevents an

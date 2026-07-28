@@ -7,6 +7,8 @@ from typing import Any
 
 from src.analysis.listening import (
     DEFAULT_EXPERT_ACCOUNTS,
+    DEFAULT_INSTAGRAM_PRIORITY_ACCOUNTS,
+    DEFAULT_INSTAGRAM_SPECIALIST_ACCOUNTS,
     DEFAULT_PRIORITY_COMMERCIAL_ACCOUNTS,
     clean_expert_accounts,
 )
@@ -108,6 +110,24 @@ def as_accounts(
     return clean_expert_accounts(accounts) or list(default)
 
 
+def as_instagram_accounts(
+    value: Any,
+    default: tuple[str, ...],
+) -> list[str]:
+    if not value:
+        return list(default)
+    if isinstance(value, list):
+        accounts = value
+    else:
+        accounts = str(value).replace("\n", ",").split(",")
+    cleaned: list[str] = []
+    for account in accounts:
+        handle = str(account).strip().lstrip("@").casefold()
+        if handle and handle not in cleaned:
+            cleaned.append(handle)
+    return cleaned or list(default)
+
+
 @dataclass(frozen=True)
 class Settings:
     app_password: str = ""
@@ -134,6 +154,17 @@ class Settings:
     x_priority_accounts: list[str] = field(
         default_factory=lambda: list(DEFAULT_PRIORITY_COMMERCIAL_ACCOUNTS)
     )
+    instagram_enabled: bool = True
+    apify_instagram_actor_id: str = "apify~instagram-post-scraper"
+    instagram_results_per_profile: int = 15
+    instagram_max_total_charge_usd: float = 0.75
+    instagram_visual_max_posts: int = 10
+    instagram_priority_accounts: list[str] = field(
+        default_factory=lambda: list(DEFAULT_INSTAGRAM_PRIORITY_ACCOUNTS)
+    )
+    instagram_specialist_accounts: list[str] = field(
+        default_factory=lambda: list(DEFAULT_INSTAGRAM_SPECIALIST_ACCOUNTS)
+    )
     openrouter_api_key: str = ""
     openrouter_api_url: str = "https://openrouter.ai/api/v1/chat/completions"
     openrouter_model: str = "qwen/qwen3-vl-32b-instruct"
@@ -141,7 +172,8 @@ class Settings:
     openrouter_site_url: str = ""
     openrouter_app_name: str = "HULA Trend Intelligence"
     google_geo: str = "WORLDWIDE"
-    google_timeframe: str = "today 3-m"
+    google_timeframe: str = "today 1-m"
+    google_discovery_timeframe: str = "now 7-d"
     google_category: int = 0
     google_anchor_term: str = "designer fashion"
     enable_google_related_queries: bool = True
@@ -153,11 +185,20 @@ class Settings:
     google_max_discovery_seeds: int = 2
     google_related_validation_terms: int = 4
     google_cache_hours: int = 24
-    google_stale_cache_days: int = 7
+    google_stale_cache_days: int = 3
     google_connect_timeout_seconds: int = 10
     google_read_timeout_seconds: int = 35
     fashion_terms: list[str] = field(default_factory=lambda: list(DEFAULT_FASHION_TERMS))
     snapshot_path: str = "data/latest_snapshot.json"
+    supabase_url: str = ""
+    supabase_secret_key: str = ""
+    supabase_snapshot_table: str = "hula_trend_snapshots"
+    supabase_blog_table: str = "hula_blog_drafts"
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-2.5-flash"
+    gemini_api_url: str = "https://generativelanguage.googleapis.com/v1beta"
+    gemini_timeout_seconds: int = 180
+    gemini_grounding_enabled: bool = True
 
     @property
     def shopify_configured(self) -> bool:
@@ -172,6 +213,30 @@ class Settings:
         return bool(self.apify_token and self.apify_x_task_id)
 
     @property
+    def instagram_configured(self) -> bool:
+        return bool(
+            self.instagram_enabled
+            and self.apify_token
+            and self.apify_instagram_actor_id
+            and self.instagram_accounts
+        )
+
+    @property
+    def instagram_accounts(self) -> list[str]:
+        return list(
+            dict.fromkeys(
+                [*self.instagram_priority_accounts, *self.instagram_specialist_accounts]
+            )
+        )
+
+    @property
+    def instagram_account_weights(self) -> dict[str, float]:
+        return {
+            **{account.casefold(): 3.0 for account in self.instagram_priority_accounts},
+            **{account.casefold(): 2.0 for account in self.instagram_specialist_accounts},
+        }
+
+    @property
     def topic_plan_enabled(self) -> bool:
         return self.apify_x_listening_mode.strip().lower() != "task_input"
 
@@ -182,6 +247,14 @@ class Settings:
     @property
     def serpapi_configured(self) -> bool:
         return bool(self.serpapi_api_key)
+
+    @property
+    def supabase_configured(self) -> bool:
+        return bool(self.supabase_url and self.supabase_secret_key)
+
+    @property
+    def gemini_configured(self) -> bool:
+        return bool(self.gemini_api_key and self.gemini_model)
 
 
 def load_settings() -> Settings:
@@ -219,6 +292,27 @@ def load_settings() -> Settings:
             setting("X_PRIORITY_ACCOUNTS", ""),
             DEFAULT_PRIORITY_COMMERCIAL_ACCOUNTS,
         ),
+        instagram_enabled=as_bool(setting("INSTAGRAM_ENABLED", True), True),
+        apify_instagram_actor_id=str(
+            setting("APIFY_INSTAGRAM_ACTOR_ID", "apify~instagram-post-scraper")
+        ),
+        instagram_results_per_profile=as_int(
+            setting("INSTAGRAM_RESULTS_PER_PROFILE", 15), 15
+        ),
+        instagram_max_total_charge_usd=as_float(
+            setting("INSTAGRAM_MAX_TOTAL_CHARGE_USD", 0.75), 0.75
+        ),
+        instagram_visual_max_posts=as_int(
+            setting("INSTAGRAM_VISUAL_MAX_POSTS", 10), 10
+        ),
+        instagram_priority_accounts=as_instagram_accounts(
+            setting("INSTAGRAM_PRIORITY_ACCOUNTS", ""),
+            DEFAULT_INSTAGRAM_PRIORITY_ACCOUNTS,
+        ),
+        instagram_specialist_accounts=as_instagram_accounts(
+            setting("INSTAGRAM_SPECIALIST_ACCOUNTS", ""),
+            DEFAULT_INSTAGRAM_SPECIALIST_ACCOUNTS,
+        ),
         openrouter_api_key=str(setting("OPENROUTER_API_KEY", "")),
         openrouter_api_url=str(
             setting(
@@ -235,7 +329,10 @@ def load_settings() -> Settings:
             setting("OPENROUTER_APP_NAME", "HULA Trend Intelligence")
         ),
         google_geo=str(setting("GOOGLE_TRENDS_GEO", "WORLDWIDE")),
-        google_timeframe=str(setting("GOOGLE_TRENDS_TIMEFRAME", "today 3-m")),
+        google_timeframe=str(setting("GOOGLE_TRENDS_TIMEFRAME", "today 1-m")),
+        google_discovery_timeframe=str(
+            setting("GOOGLE_TRENDS_DISCOVERY_TIMEFRAME", "now 7-d")
+        ),
         google_category=as_int(setting("GOOGLE_TRENDS_CATEGORY", 0), 0),
         google_anchor_term=str(
             setting("GOOGLE_TRENDS_ANCHOR_TERM", "designer fashion")
@@ -262,7 +359,7 @@ def load_settings() -> Settings:
             setting("GOOGLE_TRENDS_CACHE_HOURS", 24), 24
         ),
         google_stale_cache_days=as_int(
-            setting("GOOGLE_TRENDS_STALE_CACHE_DAYS", 7), 7
+            setting("GOOGLE_TRENDS_STALE_CACHE_DAYS", 3), 3
         ),
         google_connect_timeout_seconds=as_int(
             setting("GOOGLE_TRENDS_CONNECT_TIMEOUT_SECONDS", 10), 10
@@ -272,4 +369,26 @@ def load_settings() -> Settings:
         ),
         fashion_terms=as_terms(setting("FASHION_TERMS", "")),
         snapshot_path=str(setting("SNAPSHOT_PATH", "data/latest_snapshot.json")),
+        supabase_url=str(setting("SUPABASE_URL", "")).rstrip("/"),
+        supabase_secret_key=str(setting("SUPABASE_SECRET_KEY", "")),
+        supabase_snapshot_table=str(
+            setting("SUPABASE_SNAPSHOT_TABLE", "hula_trend_snapshots")
+        ),
+        supabase_blog_table=str(
+            setting("SUPABASE_BLOG_TABLE", "hula_blog_drafts")
+        ),
+        gemini_api_key=str(setting("GEMINI_API_KEY", "")),
+        gemini_model=str(setting("GEMINI_MODEL", "gemini-2.5-flash")),
+        gemini_api_url=str(
+            setting(
+                "GEMINI_API_URL",
+                "https://generativelanguage.googleapis.com/v1beta",
+            )
+        ).rstrip("/"),
+        gemini_timeout_seconds=as_int(
+            setting("GEMINI_TIMEOUT_SECONDS", 180), 180
+        ),
+        gemini_grounding_enabled=as_bool(
+            setting("GEMINI_GROUNDING_ENABLED", True), True
+        ),
     )

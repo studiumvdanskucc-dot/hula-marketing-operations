@@ -17,7 +17,12 @@ from src.pipeline import refresh_snapshot  # noqa: E402
 
 def main() -> int:
     settings = load_settings()
-    snapshot = refresh_snapshot(settings, use_llm=True, persist=True)
+    snapshot = refresh_snapshot(
+        settings,
+        use_llm=True,
+        persist=True,
+        generate_editorial=True,
+    )
     meta = snapshot.get("meta", {})
     summary = {
         "generated_at": meta.get("generated_at"),

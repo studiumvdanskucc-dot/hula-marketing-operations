@@ -2,64 +2,33 @@
 
 ## What the system answers
 
-The dashboard prioritises: **which currently available HULA products deserve
-marketing attention because external demand is strengthening and the catalogue
-provides a credible match?**
+The dashboard prioritises which currently available HULA products deserve
+marketing attention because fresh external demand is strengthening and the
+catalogue provides a credible match. It is decision support, not a sales
+forecast.
 
-It is decision support. It does not forecast unit sales, replace a merchandiser
-or prove that a campaign will perform.
+## Freshness contract
 
-## X discovery and measurement
+X and Instagram records are eligible only when they have:
 
-### Balanced rolling searches
+- a valid publication timestamp inside the latest fourteen days;
+- usable text;
+- no repost flag;
+- no duplicate post fingerprint.
 
-The default ScrapeBadger plan covers five open topic families: products,
-colours/materials, shapes/silhouettes, aesthetics, and styling/resale behaviour.
-A separate two-tier source panel acts as validation. Every search is run twice:
+The real timestamp overrides any scraper-supplied listening-window label. The
+latest seven days form the current window; the preceding seven days form the
+comparison window. Missing timestamps are rejected and are never replaced with
+the current time.
 
-- current seven days;
-- previous seven days.
+## X discovery
 
-The windows do not overlap. This avoids comparing a very recent `Latest` sample
-with older posts inside one uneven result set. Ordinary phrases and hashtags are
-both accepted; neither hashtags nor monitored profiles define the discovery
-universe by themselves.
+Five broad topic families discover product, material, silhouette, aesthetic,
+styling and resale language. A separate commercial panel confirms evidence.
+Every search is run for the current and previous windows with Latest ordering,
+no replies and no reposts.
 
-### Privacy-safe author breadth and deduplication
-
-The same post may appear in several searches. It is collapsed by a one-way post
-fingerprint while its query-family provenance is retained. Author identifiers
-are one-way hashed in memory, used to calculate breadth and dominance, and then
-discarded. Raw posts, handles and hashes are not written to the weekly snapshot.
-
-For each topic the app records:
-
-- current and previous post mentions;
-- current and previous unique-author counts;
-- author and post growth;
-- engagement per 1,000 views when views are available;
-- number of independent open query families;
-- commercial-panel mentions and authors;
-- high-priority commercial mentions and weighted source breadth;
-- novelty against the previous four weeks of saved snapshots;
-- duplicate, promotional and dominant-author indicators.
-
-### Topic grouping
-
-Candidate phrases come from fashion-aware one-, two- and three-word phrases,
-hashtags and a maintained fashion alias ontology. A local word/character
-similarity method groups spelling and near-lexical variants. When Qwen is
-available, it receives only aggregated candidate phrases and proposes stricter
-semantic groups—for example `ballet pumps`, `ballet flats` and `balletcore
-shoes`. The local method validates the output and remains the fallback.
-
-Qwen cannot create numerical evidence. It can group or label supplied phrases;
-all post, author, engagement and growth values are calculated from collected
-records.
-
-### Open X component
-
-The open-conversation score is a percentile composite:
+The open-X component combines:
 
 ```text
 25% current unique-author breadth
@@ -71,93 +40,76 @@ The open-conversation score is a percentile composite:
  5% current post volume
 ```
 
-The result is multiplied by an evidence-quality factor. Quality falls when the
-topic contains many cross-query duplicates, likely promotional posts, low
-author coverage or excessive concentration in one author. This makes it harder
-for one highly active commercial account to manufacture a trend.
+An evidence-quality multiplier penalises promotional content, cross-query
+duplicates, low author coverage and excessive concentration in one author.
 
-### Commercial-source component
+## Instagram commercial and visual evidence
 
-Commercial-source evidence is scored independently from open discovery using
-current source breadth, mention growth, engagement per view and source
-authority. Automated posts from Who What Wear, Who What Wear UK and Lyst
-receive a 3× evidence multiplier; supporting editorial, runway, resale and
-regional accounts receive 1×. The wider five-source priority list also includes
-Data But Make It Fashion and Tagwalk, which are checked through their official
-Instagram/site outputs rather than silently scraped from Instagram. Commercial
-sources can confirm an open topic but cannot create open-conversation growth.
-The lists should be reviewed quarterly for relevance and activity.
+The approved priority panel—Data But Make It Fashion, Tagwalk, Who What Wear,
+Who What Wear UK and Lyst—receives 3× commercial evidence weight. Vogue Runway,
+WGSN, Trendalytics, EDITED and Heuritech receive 2×.
 
-X data remains a listening sample, not a census. Actor query design, platform
-demographics and access conditions affect the result.
+Instagram captions contribute to the commercial-source component. A capped set
+of public post images may be read by Qwen for concrete product, silhouette,
+material, colour and styling labels, contributing to the visual component.
+Publisher breadth is deduplicated across Instagram and X.
 
-## Google Trends worldwide
+## Topic grouping
 
-Candidate phrases from social discovery, related-query discovery and the HULA
-watchlist are measured for the selected market and time range. A percentile
-score combines:
+Candidate phrases come from fashion-aware one-, two- and three-word phrases,
+hashtags and a maintained alias ontology. Qwen may group aggregated aliases,
+but it cannot create numerical evidence. The deterministic local method
+validates the output and is the fallback.
 
-```text
-45% current relative interest
-40% momentum versus the recent baseline
-15% recent time-series slope
-```
+The exact-name filter removes vague labels before scoring. `sandal` and
+`sandals` remain valid. `trousers`, `outfit ideas`, `dress` and `mini` are
+removed alone, while `red trousers`, `mini dress` and other specific
+combinations remain eligible.
 
-Google Trends web values are normalised from 0 to 100. They are not absolute
-search volume. The connector uses a repeated anchor term to make separate
-batches more directionally comparable, but the output should still be read as
-momentum rather than market size.
+## Google discovery and validation
 
-Automatic mode uses SerpApi's Google Trends endpoint. It performs the
-Google-facing request outside the Streamlit process and returns structured
-timelines and related queries. This avoids both Apify Actor memory and the
-archived `pytrends` cookie-bootstrap route. A manual CSV importer remains the
-final operational fallback.
+Google uses SerpApi's structured Trends endpoint:
 
-Each live refresh measures at most 12 primary terms in three multi-term
-comparisons and checks at most two related-query seeds. This five-search ceiling
-is a usage safeguard, not an analytical weight: the highest-scoring X
-discoveries are prioritised before the fixed watchlist.
+- rising related queries over `now 7-d` discover fresh phrases;
+- `today 1-m` validates persistence;
+- `now 7-d` measures immediate acceleration.
 
-Successful live series are reused for 24 hours. If a later request is blocked or
-times out, a market- and timeframe-compatible cache up to seven days old may be
-retained with an explicit cached status. Cached data is never presented as a
-new live collection.
+Worldwide requests omit `geo`; the literal value `WORLDWIDE` is never sent as a
+country code. Timeline values must carry their query names and are never
+assigned by array position. An invariant series is considered an unusable
+provider/calibration result and is excluded from scoring and charts.
 
-The provider, requested worldwide market, attempts, API-search count and returned
-timeline count are saved with the aggregate snapshot. The API key is never
-saved in the snapshot or safe diagnostic report.
+The Google score combines current relative interest, baseline momentum and
+time-series slope. Google values are relative, not absolute search volume.
 
-## Combined external trend score
+A compatible result under 24 hours is a live cache. A cache up to three days
+old may be displayed as stale after a provider failure, but stale Google
+evidence cannot make a trend decision-ready.
 
-The target evidence mix is:
+## Combined score and completeness
 
 ```text
 35% Google Trends worldwide
 20% open X topic momentum
-35% curated commercial-source confirmation
-10% visual validation from TikTok/Pinterest
+35% approved commercial-source confirmation
+10% approved Instagram visual validation
 ```
 
-The current build reserves the visual component for a future governed data
-connection. A missing component is excluded and the remaining weights are
-renormalised; missing evidence is not silently treated as a zero. The snapshot
-stores the effective component weights used for every trend.
+Missing components are excluded and the available weights are renormalised;
+missing evidence is not converted to zero. A row enters the decision list only
+when fresh Google and at least one open, commercial or visual component agree.
+Incomplete rows remain in a separate watchlist.
 
-Confidence is **High** when Google and open X independently support the same
-canonical idea, or when a priority commercial source agrees with either Google
-or open X. It is **Medium** when at least two other components agree, and
-**Exploratory** when only one component is available.
+Confidence is **High** when Google, open X and commercial/visual evidence agree,
+or when Google agrees with a priority commercial source. Google plus one other
+eligible source is **Medium**. One-source evidence is **Exploratory** and
+cannot receive an action recommendation.
 
 ## Catalogue matching
 
-The app reads active, in-stock products from the selected source: an uploaded
-Shopify/product CSV snapshot or the live read-only Shopify API. It builds a text
-representation from title, brand, product type, tags and description, then
-combines word and character TF-IDF similarity with exact attribute overlap and
-category fit.
-
-The default product opportunity score is:
+The app reads active, in-stock products from an uploaded catalogue snapshot or
+the live read-only Shopify API. Matching uses product title, brand, product
+type, tags and description.
 
 ```text
 45% external trend signal
@@ -167,29 +119,24 @@ The default product opportunity score is:
 ```
 
 Content readiness checks stock, image, description and merchandising tags.
-Because HULA sells one-of-one pre-owned items, inventory quantity `1` is treated
-as fully available. Out-of-stock items are excluded.
+One-of-one stock quantity `1` is fully available; out-of-stock products are
+excluded.
 
-## What is intentionally missing
+## Storage and editorial controls
 
-The app does not use order or customer data. It therefore does not yet account
-for gross margin, sales velocity, conversion, recent campaign fatigue or paid
-media performance. The most useful next commercial input is a privacy-safe
-weekly product table containing SKU, views, add-to-cart rate, units sold, margin
-band and last campaign date.
+Supabase stores aggregate weekly snapshots and blog drafts. Raw X/Instagram
+posts, raw profile identifiers, customers, orders and payment data are not
+stored.
 
-TikTok Creative Center and Pinterest Trends are represented as a reserved visual
-validation component rather than scraped automatically. Connect them only
-through a stable, permitted source with clear provenance and comparable weekly
-windows.
+Gemini runs only after deterministic ranking and product matching. A named
+person may be described as wearing a selected product only when a credible
+source supports the exact design. A similar item is labelled
+`similar_design_only` and stays outside factual publishable copy.
 
-## Editorial controls
+Before publishing:
 
-Before using a recommendation:
-
-1. verify stock and condition in Shopify;
-2. confirm rarity, collection, runway, celebrity or provenance claims from
-   primary product evidence;
-3. check margin and current commercial priorities;
-4. check whether the piece appeared in a recent campaign;
-5. let HULA's team approve the final creative idea and copy.
+1. verify stock and condition;
+2. review every confirmed source;
+3. check margin and campaign fatigue;
+4. approve the final copy and imagery;
+5. verify whether Soho, The Hub, online—or a combination—is the correct CTA.

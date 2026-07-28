@@ -11,6 +11,8 @@ import numpy as np
 from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
+from src.analysis.freshness import parse_utc, validate_series
+
 
 CANONICAL_PHRASES = {
     "east west bag": "East–West Bags",
@@ -108,12 +110,17 @@ FASHION_CONTEXT = {
     "vintage", "waist", "woven",
 }
 
-BROAD_SINGLE_TOKENS = {
-    "accessory", "accessories", "apparel", "bag", "bags", "clothes", "clothing",
-    "fashion", "footwear", "garment", "garments", "handbag", "handbags",
-    "jewellery", "jewelry", "outfit", "outfits", "pattern", "patterns", "print",
-    "prints", "shoe", "shoes", "silhouette", "silhouettes", "style", "styles",
-    "trend", "trends", "wear",
+EXACT_TREND_BLOCKLIST = {
+    # The user-approved permanent exact-name list.
+    "accessories", "accessory", "aesthetic", "amazon", "apparel", "bag", "bags",
+    "chic", "classic", "clothes", "clothing", "color", "colour", "design", "ebay",
+    "element", "etsy", "fashion", "footwear", "garment", "garments", "handbag",
+    "handbags", "instagram", "jewellery", "jewelry", "outfit", "outfits", "pattern",
+    "patterns", "pinterest", "platform", "print", "prints", "shopify", "shoe",
+    "shoes", "silhouette", "silhouettes", "style", "styles", "tiktok", "trend",
+    "trends", "twitter", "viral", "wear", "x",
+    # Explicit July 28 refinements: combinations remain valid.
+    "dress", "dresses", "mini", "outfit idea", "outfit ideas", "trouser", "trousers",
 }
 
 GENERIC_FASHION_FILLERS = {
@@ -123,44 +130,30 @@ GENERIC_FASHION_FILLERS = {
     "wear", "woman", "women", "womens",
 }
 
-VAGUE_SINGLE_TOKENS = {
-    "aesthetic", "chic", "classic", "color", "colour", "design", "element",
-    "platform", "viral",
-}
-
-PLATFORM_ONLY_TOKENS = {
-    "amazon", "ebay", "etsy", "instagram", "pinterest", "shopify", "tiktok",
-    "twitter", "x",
-}
-
-PERMANENT_BLOCKLIST = frozenset(
-    BROAD_SINGLE_TOKENS | VAGUE_SINGLE_TOKENS | PLATFORM_ONLY_TOKENS
-)
-
 # A candidate must contain at least one concrete fashion-domain cue. This is
 # intentionally stricter than the broad-term filter: posts from fashion sources
 # can still mention unrelated ideas such as interiors, wellness or kindness.
 FASHION_PRODUCT_TOKENS = {
     "accessory", "accessories", "apparel", "bag", "bags", "belt", "belts",
     "blazer", "blazers", "blouse", "blouses", "boot", "boots", "bracelet",
-    "bracelets", "bottom", "bottoms", "cardigan", "cardigans", "clutch", "clutches", "coat",
+    "bracelets", "cardigan", "cardigans", "clutch", "clutches", "coat",
     "coats", "corset", "corsets", "dress", "dresses", "earring", "earrings",
     "flat", "flats", "footwear", "gown", "gowns", "handbag", "handbags",
     "heel", "heels", "jacket", "jackets", "jean", "jeans", "jewellery",
-    "jewelry", "knitwear", "loafer", "loafers", "necklace", "necklaces", "outfit",
+    "jewelry", "loafer", "loafers", "necklace", "necklaces", "outfit",
     "outfits", "pant", "pants", "pump", "pumps", "sandal", "sandals",
     "scarf", "scarves", "shirt", "shirts", "shoe", "shoes", "silhouette",
     "silhouettes", "skirt", "skirts", "sneaker", "sneakers", "suit", "suits",
     "sweater", "sweaters", "tie", "ties", "top", "tops", "tote", "totes",
-    "trainer", "trainers", "trouser", "trousers", "tshirt", "tshirts", "vest", "vests", "watch",
+    "trainer", "trainers", "trouser", "trousers", "vest", "vests", "watch",
     "watches",
 }
 
 FASHION_STYLE_TOKENS = {
     "animal", "archive", "athleisure", "ballet", "balletcore", "barrel",
     "boho", "bohemian", "burgundy", "capri", "charm", "coastal", "coquette",
-    "core", "corsetry", "crochet", "denim", "drop", "gorpcore", "lace", "leather",
-    "leopard", "maxi", "metallic", "mini", "minimalist", "maximalist", "nautical",
+    "corsetry", "crochet", "denim", "drop", "gorpcore", "lace", "leather",
+    "leopard", "maxi", "metallic", "minimalist", "maximalist", "nautical",
     "polka", "preloved", "preowned", "print", "raffia", "resale", "satin",
     "sheer", "silk", "street", "streetwear", "suede", "tailoring", "tweed",
     "vintage", "waist", "woven", "y2k",
@@ -214,16 +207,9 @@ def generic_trend_reason(value: str) -> str:
     # explicit Jane -> Mary Janes shorthand requested for HULA.
     if phrase in CANONICAL_PHRASES:
         return ""
+    if phrase in EXACT_TREND_BLOCKLIST:
+        return "Exact broad or non-actionable trend label"
     tokens = set(phrase.split())
-    # The permanent blocklist is exact-name only. This blocks ``shoes`` but
-    # keeps commercially useful phrases such as ``boat shoes``; likewise,
-    # ``bags`` is blocked while ``east west bags`` remains eligible.
-    if phrase in BROAD_SINGLE_TOKENS:
-        return "Generic product or fashion category"
-    if phrase in VAGUE_SINGLE_TOKENS:
-        return "Vague descriptor without a product or defining attribute"
-    if phrase in PLATFORM_ONLY_TOKENS:
-        return "Platform or source name, not a fashion trend"
     if not (
         tokens & FASHION_PRODUCT_TOKENS
         or tokens & FASHION_STYLE_TOKENS
@@ -234,9 +220,9 @@ def generic_trend_reason(value: str) -> str:
 
 
 def generic_term_catalogue() -> list[str]:
-    """Return the exact-name permanent blocklist for transparent UI display."""
+    """Return the permanent exact-name blocklist for transparent UI display."""
 
-    return sorted(PERMANENT_BLOCKLIST)
+    return sorted(EXACT_TREND_BLOCKLIST)
 
 
 def _audit_filtered(
@@ -299,6 +285,7 @@ def sanitize_snapshot_trends(snapshot: dict[str, Any]) -> dict[str, Any]:
     kept: list[dict[str, Any]] = []
     removed_ids: set[str] = set()
     remapped_ids: dict[str, str] = {}
+    quality_changed = False
     for trend in trends:
         name = str(trend.get("name") or "")
         reason = generic_trend_reason(name)
@@ -307,18 +294,54 @@ def sanitize_snapshot_trends(snapshot: dict[str, Any]) -> dict[str, Any]:
             _audit_filtered(audit, name, "Stored snapshot", reason)
         else:
             canonical = CANONICAL_PHRASES.get(_clean_phrase(name), name)
+            normalised = dict(trend)
             if canonical != name:
-                normalised = dict(trend)
                 old_id = str(trend.get("id") or "")
                 new_id = slugify(canonical)
                 normalised["name"] = canonical
                 normalised["id"] = new_id
                 if old_id:
                     remapped_ids[old_id] = new_id
-                kept.append(normalised)
-            else:
-                kept.append(trend)
-    if not removed_ids and not remapped_ids and len(kept) == len(trends):
+
+            series = list(normalised.get("series") or [])
+            if series:
+                cleaned, quality = validate_series(series)
+                normalised["series"] = cleaned
+                normalised["chart_ready"] = bool(quality["chart_ready"])
+                normalised["series_quality"] = quality
+                normalised["series_issue"] = str(quality["issue"])
+                if not quality["score_ready"]:
+                    normalised["google_score"] = None
+                    normalised["decision_ready"] = False
+
+            has_google = normalised.get("google_score") is not None
+            has_confirmation = any(
+                normalised.get(component) is not None
+                for component in ("x_score", "expert_score", "visual_score")
+            )
+            if normalised.get("decision_ready") and not (
+                has_google and has_confirmation
+            ):
+                normalised["decision_ready"] = False
+            if "decision_ready" in normalised:
+                normalised["missing_components"] = [
+                    label
+                    for component, label in (
+                        ("google_score", "Google Trends"),
+                        ("x_score", "Open X"),
+                        ("expert_score", "commercial sources"),
+                        ("visual_score", "Instagram visual evidence"),
+                    )
+                    if normalised.get(component) is None
+                ]
+            quality_changed = quality_changed or normalised != trend
+            kept.append(normalised)
+    if (
+        not removed_ids
+        and not remapped_ids
+        and not quality_changed
+        and len(kept) == len(trends)
+    ):
         return snapshot
 
     updated = dict(snapshot)
@@ -338,7 +361,7 @@ def sanitize_snapshot_trends(snapshot: dict[str, Any]) -> dict[str, Any]:
     raw_counts["filtered_generic_terms"] = len(meta["filtered_terms"])
     raw_counts["recommendations"] = len(updated["recommendations"])
     meta["raw_counts"] = raw_counts
-    meta["quality_filter_version"] = "2.0"
+    meta["quality_filter_version"] = "3.0"
     updated["meta"] = meta
     return updated
 
@@ -359,18 +382,8 @@ def canonical_name(value: str) -> str:
     return " ".join(word.capitalize() for word in phrase_tokens)
 
 
-def _parse_datetime(value: Any) -> datetime:
-    if isinstance(value, datetime):
-        parsed = value
-    else:
-        raw = str(value or "").strip().replace("Z", "+00:00")
-        try:
-            parsed = datetime.fromisoformat(raw)
-        except ValueError:
-            parsed = datetime.now(tz=timezone.utc)
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc)
+def _parse_datetime(value: Any) -> datetime | None:
+    return parse_utc(value)
 
 
 def _rank_scores(values: list[float]) -> list[float]:
@@ -600,10 +613,9 @@ def _post_window(
     current_start: datetime,
     previous_start: datetime,
 ) -> str:
-    declared = str(post.get("listening_window") or "").lower()
-    if declared in {"current", "previous"}:
-        return declared
     created = _parse_datetime(post.get("created_at"))
+    if created is None:
+        return "invalid"
     if created >= current_start:
         return "current"
     if created >= previous_start:
@@ -696,6 +708,8 @@ def extract_x_signals(
             "previous_open": [],
             "current_expert": [],
             "previous_expert": [],
+            "current_visual": [],
+            "previous_visual": [],
         }
         for post in posts:
             if post.get("is_repost"):
@@ -715,17 +729,34 @@ def extract_x_signals(
                 buckets[f"{window}_open"].append(post)
             if "expert" in channels:
                 buckets[f"{window}_expert"].append(post)
+            if "visual" in channels:
+                buckets[f"{window}_visual"].append(post)
 
         current = buckets["current_open"]
         previous = buckets["previous_open"]
         current_expert = buckets["current_expert"]
         previous_expert = buckets["previous_expert"]
-        if not current and not previous and not current_expert and not previous_expert:
+        current_visual = buckets["current_visual"]
+        previous_visual = buckets["previous_visual"]
+        if not any(
+            (
+                current,
+                previous,
+                current_expert,
+                previous_expert,
+                current_visual,
+                previous_visual,
+            )
+        ):
             continue
 
         current_authors = {_author_key(post) for post in current}
         previous_authors = {_author_key(post) for post in previous}
         expert_authors = {_author_key(post) for post in current_expert}
+        visual_authors = {_author_key(post) for post in current_visual}
+        previous_visual_authors = {
+            _author_key(post) for post in previous_visual
+        }
         priority_expert = [post for post in current_expert if _is_priority_expert(post)]
         previous_priority_expert = [
             post for post in previous_expert if _is_priority_expert(post)
@@ -753,6 +784,10 @@ def extract_x_signals(
             _expert_weight(post) * int(post.get("views") or 0)
             for post in current_expert
         )
+        visual_engagement = sum(
+            int(post.get("engagement") or 0) for post in current_visual
+        )
+        visual_views = sum(int(post.get("views") or 0) for post in current_visual)
         raw_return_count = sum(max(1, int(post.get("duplicate_count") or 1)) for post in current)
         duplicate_rate = max(0.0, (raw_return_count - len(current)) / max(raw_return_count, 1))
         spam_rate = sum(bool(post.get("is_probable_promo")) for post in current) / max(len(current), 1)
@@ -799,6 +834,24 @@ def extract_x_signals(
                 "expert_mention_growth": round(_growth(len(current_expert), len(previous_expert)), 1),
                 "expert_authors": len(expert_authors),
                 "expert_engagement_per_1000_views": round(1000 * expert_engagement / expert_views, 2) if expert_views else 0.0,
+                "visual_mentions": len(current_visual),
+                "previous_visual_mentions": len(previous_visual),
+                "visual_authors": len(visual_authors),
+                "previous_visual_authors": len(previous_visual_authors),
+                "visual_growth": round(
+                    _growth(len(current_visual), len(previous_visual)),
+                    1,
+                ),
+                "visual_author_growth": round(
+                    _growth(len(visual_authors), len(previous_visual_authors)),
+                    1,
+                ),
+                "visual_engagement_per_1000_views": round(
+                    1000 * visual_engagement / visual_views,
+                    2,
+                )
+                if visual_views
+                else 0.0,
                 "commercial_priority_mentions": len(priority_expert),
                 "previous_commercial_priority_mentions": len(
                     previous_priority_expert
@@ -847,6 +900,15 @@ def extract_x_signals(
     )
     expert_engagement_rank = _rank_scores(
         [math.log1p(row["expert_engagement_per_1000_views"]) for row in rows]
+    )
+    visual_author_rank = _rank_scores(
+        [math.log1p(row["visual_authors"]) for row in rows]
+    )
+    visual_growth_rank = _rank_scores(
+        [row["visual_author_growth"] for row in rows]
+    )
+    visual_engagement_rank = _rank_scores(
+        [math.log1p(row["visual_engagement_per_1000_views"]) for row in rows]
     )
 
     for index, row in enumerate(rows):
@@ -897,6 +959,15 @@ def extract_x_signals(
         else:
             row["expert_score"] = None
             row["commercial_source_score"] = None
+        if int(row["visual_mentions"]) or int(row["previous_visual_mentions"]):
+            row["visual_score"] = round(
+                0.50 * visual_author_rank[index]
+                + 0.30 * visual_growth_rank[index]
+                + 0.20 * visual_engagement_rank[index],
+                1,
+            )
+        else:
+            row["visual_score"] = None
     return sorted(
         rows,
         key=lambda row: (
@@ -918,9 +989,10 @@ def score_google_series(
         if reason:
             _audit_filtered(audit, term, "Google Trends term", reason)
             continue
-        values = [float(point.get("value") or 0) for point in points]
-        if len(values) < 3:
+        cleaned_points, quality = validate_series(points)
+        if not quality["score_ready"]:
             continue
+        values = [float(point["value"]) for point in cleaned_points]
         recent_window = max(2, min(7, len(values) // 6 or 2))
         baseline_window = max(recent_window * 3, 6)
         current_values = values[-recent_window:]
@@ -929,9 +1001,19 @@ def score_google_series(
             baseline_values = values[:-recent_window]
         current = statistics.mean(current_values)
         baseline = statistics.mean(baseline_values) if baseline_values else 0
-        momentum = 100 * (current - baseline) / max(baseline, 5)
+        momentum = (
+            0.0
+            if quality["flat"]
+            else 100 * (current - baseline) / max(baseline, 5)
+        )
         slope_values = values[-min(10, len(values)) :]
-        slope = float(np.polyfit(np.arange(len(slope_values)), slope_values, 1)[0])
+        slope = (
+            0.0
+            if quality["flat"]
+            else float(
+                np.polyfit(np.arange(len(slope_values)), slope_values, 1)[0]
+            )
+        )
         name = canonical_name(term)
         rows.append(
             {
@@ -942,8 +1024,11 @@ def score_google_series(
                 "search_baseline": round(baseline, 1),
                 "search_momentum": round(momentum, 1),
                 "search_slope": round(slope, 2),
-                "series": points,
+                "series": cleaned_points,
                 "aliases": [term],
+                "chart_ready": bool(quality["chart_ready"]),
+                "series_quality": quality,
+                "series_issue": str(quality["issue"]),
             }
         )
     interest_rank = _rank_scores([row["search_interest"] for row in rows])
@@ -957,6 +1042,50 @@ def score_google_series(
             1,
         )
     return sorted(rows, key=lambda row: row["google_score"], reverse=True)
+
+
+def score_google_windows(
+    context_series: dict[str, list[dict[str, Any]]],
+    recent_series: dict[str, list[dict[str, Any]]],
+    *,
+    audit: list[dict[str, str]] | None = None,
+) -> list[dict[str, Any]]:
+    """Combine one-month persistence with the last seven days of acceleration."""
+
+    context_rows = score_google_series(context_series, audit=audit)
+    recent_rows = score_google_series(recent_series, audit=audit)
+    recent_by_id = {str(row.get("id")): row for row in recent_rows}
+    output: list[dict[str, Any]] = []
+    for row in context_rows:
+        updated = dict(row)
+        recent = recent_by_id.get(str(row.get("id")))
+        if recent:
+            updated["google_context_score"] = float(row.get("google_score") or 0)
+            updated["google_recent_score"] = float(recent.get("google_score") or 0)
+            updated["google_score"] = round(
+                0.60 * float(row.get("google_score") or 0)
+                + 0.40 * float(recent.get("google_score") or 0),
+                1,
+            )
+            updated["search_momentum_7d"] = float(
+                recent.get("search_momentum") or 0
+            )
+            updated["recent_series"] = list(recent.get("series") or [])
+            updated["recent_series_quality"] = dict(
+                recent.get("series_quality") or {}
+            )
+        else:
+            updated["google_context_score"] = float(row.get("google_score") or 0)
+            updated["google_recent_score"] = None
+            updated["search_momentum_7d"] = None
+            updated["recent_series"] = []
+            updated["recent_series_quality"] = {}
+        output.append(updated)
+    return sorted(
+        output,
+        key=lambda item: float(item.get("google_score") or 0),
+        reverse=True,
+    )
 
 
 def infer_category(name: str) -> str:
@@ -1007,6 +1136,12 @@ def _why_now(row: dict[str, Any]) -> str:
             f"{int(row.get('expert_mentions') or 0)} current mentions"
             f"{priority_clause}"
         )
+    if row.get("visual_score") is not None:
+        clauses.append(
+            f"the Instagram visual panel contributed "
+            f"{int(row.get('visual_mentions') or 0)} current post"
+            f"{'' if int(row.get('visual_mentions') or 0) == 1 else 's'}"
+        )
     if not clauses:
         return "The available evidence is directional and should be validated before use."
     return "; ".join(clauses).capitalize() + "."
@@ -1017,6 +1152,7 @@ def _content_angles(name: str, category: str) -> list[str]:
         f"The HULA edit: pre-owned pieces that tap into {name.lower()}",
         f"Three ways to style the {name.lower()} signal without buying new",
         f"Then vs now: how designer archives anticipated {name.lower()}",
+        f"Store story: discover the {name.lower()} edit at HULA Soho or The Hub",
     ]
 
 
@@ -1075,15 +1211,14 @@ def merge_trend_signals(
         has_priority_commercial = bool(
             int(social.get("commercial_priority_mentions") or 0)
         )
+        decision_ready = has_google and (has_open_x or has_expert or has_visual)
         if has_google and has_open_x and (has_expert or has_visual):
             confidence = "High"
         elif has_priority_commercial and has_google:
             confidence = "High"
-        elif has_priority_commercial and has_open_x:
-            confidence = "High"
         elif has_google and has_open_x:
-            confidence = "High"
-        elif len(available) >= 2:
+            confidence = "Medium"
+        elif has_google and (has_expert or has_visual):
             confidence = "Medium"
         else:
             confidence = "Exploratory"
@@ -1098,7 +1233,7 @@ def merge_trend_signals(
                     else "Supporting fashion panel",
                     has_expert,
                 ),
-                ("Visual validation", has_visual),
+                ("Instagram visual panel", has_visual),
             )
             if present
         ]
@@ -1126,6 +1261,7 @@ def merge_trend_signals(
             "search_interest": google.get("search_interest"),
             "search_baseline": google.get("search_baseline"),
             "search_momentum": float(google.get("search_momentum") or 0),
+            "search_momentum_7d": google.get("search_momentum_7d"),
             "mentions": int(social.get("mentions") or 0),
             "previous_mentions": int(social.get("previous_mentions") or 0),
             "mention_growth": float(social.get("mention_growth") or 0),
@@ -1137,6 +1273,9 @@ def merge_trend_signals(
             "source_breadth": int(social.get("source_breadth") or 0),
             "expert_mentions": int(social.get("expert_mentions") or 0),
             "expert_authors": int(social.get("expert_authors") or 0),
+            "visual_mentions": int(social.get("visual_mentions") or 0),
+            "visual_authors": int(social.get("visual_authors") or 0),
+            "visual_growth": float(social.get("visual_growth") or 0),
             "commercial_priority_mentions": int(
                 social.get("commercial_priority_mentions") or 0
             ),
@@ -1151,9 +1290,24 @@ def merge_trend_signals(
             "evidence_quality": float(social.get("evidence_quality") or 0),
             "novelty_score": float(social.get("novelty_score") or 0),
             "confidence": confidence,
+            "decision_ready": decision_ready,
+            "missing_components": [
+                label
+                for component, label in (
+                    ("google", "Google Trends"),
+                    ("open_x", "Open X"),
+                    ("expert", "commercial sources"),
+                    ("visual", "Instagram visual evidence"),
+                )
+                if component not in available
+            ],
             "sources": sources,
             "aliases": aliases,
             "series": google.get("series", []),
+            "recent_series": google.get("recent_series", []),
+            "chart_ready": bool(google.get("chart_ready")),
+            "series_quality": dict(google.get("series_quality") or {}),
+            "series_issue": str(google.get("series_issue") or ""),
             "component_weights": {
                 component: round(SOURCE_WEIGHTS[component] / denominator, 4)
                 for component in available

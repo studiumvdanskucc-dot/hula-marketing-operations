@@ -14,6 +14,7 @@ import plotly.graph_objects as go
 import streamlit as st
 from PIL import Image, ImageChops
 
+from src.analysis.freshness import parse_utc, validate_series
 from src.analysis.listening import (
     PRIORITY_COMMERCIAL_SOURCES,
     build_listening_plan,
@@ -27,10 +28,13 @@ from src.analysis.trends import (
 )
 from src.config import Settings, load_settings
 from src.connectors.apify_x import ApifyXConnector
+from src.connectors.apify_instagram import ApifyInstagramConnector
 from src.connectors.catalog_csv import SIMPLE_CSV_TEMPLATE, parse_product_csv
+from src.connectors.gemini_research import GeminiResearchConnector
 from src.connectors.google_trends import GoogleTrendsConnector
 from src.connectors.openrouter import OpenRouterConnector
 from src.connectors.shopify import ShopifyConnector
+from src.connectors.supabase_store import SupabaseStore
 from src.demo_data import demo_snapshot
 from src.diagnostics import (
     diagnostic_report,
@@ -39,6 +43,10 @@ from src.diagnostics import (
     source_diagnostic_rows,
 )
 from src.pipeline import refresh_snapshot
+from src.editorial.blog_generator import (
+    fallback_blog,
+    generate_researched_blog,
+)
 from src.storage import load_snapshot, save_snapshot
 
 
@@ -51,7 +59,7 @@ PALETTE = [PINK, INK, LILAC, "#e8a846", "#6f8e84", "#d46262"]
 CATALOGUE_CSV = "Upload CSV"
 CATALOGUE_API = "Shopify API"
 CATALOGUE_SELECTOR_KEY = "catalogue_source_selector_v2"
-APP_BUILD = "2026.07.26.1"
+APP_BUILD = "2026.07.28.1"
 DECISION_COLORS = {
     "Act now": PINK,
     "Test this week": "#e8a846",
@@ -227,6 +235,8 @@ def plot_layout(figure: go.Figure, height: int = 430) -> go.Figure:
 def business_decision(trend: dict) -> str:
     """Translate the evidence score into one plain-language business action."""
 
+    if not trend.get("decision_ready"):
+        return "Watch"
     score = float(trend.get("score") or 0)
     sources = set(trend.get("sources") or [])
     cross_source = "Google Trends" in sources and bool(
@@ -235,7 +245,7 @@ def business_decision(trend: dict) -> str:
             "Open X topics",
             "Priority commercial panel",
             "Supporting fashion panel",
-            "Visual validation",
+            "Instagram visual panel",
         }
     )
     confidence = str(trend.get("confidence") or "")
@@ -324,7 +334,13 @@ def mode_banner(meta: dict) -> None:
     mode = str(meta.get("mode", "demo")).lower()
     if mode == "live":
         return
-    label = "DEMO MODE" if mode == "demo" else "HYBRID MODE"
+    label = (
+        "DEMO MODE"
+        if mode == "demo"
+        else "STALE DATA"
+        if mode == "stale"
+        else "HYBRID MODE"
+    )
     copy = hybrid_explanation(meta)
     st.markdown(
         f'<div class="mode-banner"><strong>{label}</strong> · {html.escape(copy)}</div>',
@@ -445,16 +461,17 @@ def line_chart(trends: list[dict], selected_ids: list[str] | None = None) -> go.
     if selected_ids:
         filtered = [trend for trend in trends if str(trend.get("id")) in selected_ids]
     for index, trend in enumerate(filtered):
-        points = trend.get("series") or []
-        if not points:
+        points, quality = validate_series(trend.get("series") or [])
+        if not quality["chart_ready"]:
             continue
         figure.add_trace(
             go.Scatter(
                 x=[point.get("date") for point in points],
                 y=[point.get("value") for point in points],
-                mode="lines",
+                mode="lines+markers",
                 name=str(trend.get("name")),
                 line=dict(color=PALETTE[index % len(PALETTE)], width=3),
+                marker=dict(size=5),
                 hovertemplate="%{x}<br>Relative interest: %{y}<extra>%{fullData.name}</extra>",
             )
         )
@@ -462,9 +479,31 @@ def line_chart(trends: list[dict], selected_ids: list[str] | None = None) -> go.
     return plot_layout(figure)
 
 
+def chart_or_quality_note(
+    trends: list[dict],
+    *,
+    selected_ids: list[str] | None = None,
+) -> None:
+    figure = line_chart(trends, selected_ids)
+    if figure.data:
+        st.plotly_chart(
+            figure,
+            width="stretch",
+            config={"displayModeBar": False},
+        )
+        return
+    st.info(
+        "No trustworthy movement chart is available for this selection. "
+        "The app excludes timelines with too few dated points or one invariant "
+        "value from both scoring and charts."
+    )
+
+
 def this_week(snapshot: dict) -> None:
     meta = snapshot.get("meta", {})
     trends = snapshot.get("trends", [])
+    ready_trends = [trend for trend in trends if trend.get("decision_ready")]
+    display_trends = ready_trends or trends
     updated = hk_time(str(meta.get("generated_at", "")))
     week_label = f"WEEK {updated.isocalendar().week} · GLOBAL FASHION"
     page_header(
@@ -473,11 +512,17 @@ def this_week(snapshot: dict) -> None:
         "A weekly view of rising fashion demand, social conversation and the pre-owned HULA pieces ready to meet it.",
     )
     mode_banner(meta)
-    top_score = float(trends[0].get("score", 0)) if trends else 0
-    high_confidence = sum(1 for trend in trends if trend.get("confidence") == "High")
+    top_score = float(display_trends[0].get("score", 0)) if display_trends else 0
+    high_confidence = sum(
+        1 for trend in ready_trends if trend.get("confidence") == "High"
+    )
     unique_products = len({row.get("product_id") for row in snapshot.get("recommendations", [])})
     metrics = st.columns(4)
-    metrics[0].metric("Strongest signal", f"{top_score:.0f}/100", trends[0].get("name") if trends else "—")
+    metrics[0].metric(
+        "Strongest signal",
+        f"{top_score:.0f}/100" if ready_trends else "Pending",
+        display_trends[0].get("name") if display_trends else "—",
+    )
     metrics[1].metric(
         "Cross-source trends",
         high_confidence,
@@ -487,7 +532,13 @@ def this_week(snapshot: dict) -> None:
     metrics[3].metric("Updated", updated.strftime("%d %b · %H:%M"), "Hong Kong time")
 
     section_header("01 · Signal board", "This week's strongest opportunities")
-    trend_cards(trends, 4)
+    if not ready_trends and trends:
+        st.warning(
+            "No trend currently has both fresh Google demand and social or "
+            "commercial confirmation. The cards below are a watchlist, not an "
+            "action list."
+        )
+    trend_cards(display_trends, 4)
     filtered_count = len((meta.get("filtered_terms") or []))
     if filtered_count:
         st.caption(
@@ -495,29 +546,34 @@ def this_week(snapshot: dict) -> None:
             "The complete list is in Data & Setup."
         )
 
-    section_header("02 · Momentum", "Search interest over the last 13 weeks")
-    st.plotly_chart(
-        line_chart(trends[:5]),
-        width="stretch",
-        config={"displayModeBar": False},
-    )
+    section_header("02 · Momentum", "Fresh Google movement over the last month")
+    chart_or_quality_note(display_trends[:5])
     st.caption("Google Trends values are relative indices, not absolute search volumes. Live multi-query batches are approximately aligned with one repeated anchor term; demo mode uses illustrative series.")
 
     section_header("03 · Catalogue opportunity", "Products to put in front of people now")
     top_recommendations = []
     seen_products: set[str] = set()
+    ready_ids = {str(trend.get("id")) for trend in ready_trends}
     for recommendation in recommendation_rows(snapshot):
+        if str(recommendation.get("trend_id")) not in ready_ids:
+            continue
         product_id = str(recommendation.get("product_id"))
         if product_id not in seen_products:
             top_recommendations.append(recommendation)
             seen_products.add(product_id)
         if len(top_recommendations) == 6:
             break
-    render_product_grid(snapshot, top_recommendations)
+    if top_recommendations:
+        render_product_grid(snapshot, top_recommendations)
+    else:
+        st.info(
+            "Catalogue recommendations are held back until at least one trend "
+            "has complete, fresh cross-source evidence."
+        )
 
     section_header("04 · Direction", "The editorial idea behind the numbers")
     left, right = st.columns([1.05, 1], gap="large")
-    top = trends[0] if trends else {}
+    top = display_trends[0] if display_trends else {}
     with left:
         st.markdown(
             f"""
@@ -540,6 +596,8 @@ def this_week(snapshot: dict) -> None:
 
 def trend_radar(snapshot: dict) -> None:
     trends = snapshot.get("trends", [])
+    ready_trends = [trend for trend in trends if trend.get("decision_ready")]
+    watchlist = [trend for trend in trends if not trend.get("decision_ready")]
     page_header(
         "TREND RADAR · EXTERNAL SIGNALS",
         "Know what to act on first.",
@@ -553,53 +611,96 @@ def trend_radar(snapshot: dict) -> None:
         )
         return
     google_status = str((meta.get("source_status") or {}).get("google_trends", ""))
-    if not google_status.startswith("live") and "manual CSV" not in google_status:
+    if not google_status.startswith(("LIVE", "PARTIAL")) and "manual CSV" not in google_status:
         st.warning(
-            "Google search evidence was unavailable on the last refresh. The radar still ranks the other evidence, "
-            "but no trend can receive the green-light 'Act now' decision until search demand is confirmed."
+            "Fresh Google search evidence was unavailable on the last refresh. "
+            "Unvalidated terms stay in the watchlist and cannot receive an "
+            "'Act now' or 'Test this week' recommendation."
         )
 
     section_header("Priority view", "What to do with each trend")
     decision_legend()
-    st.plotly_chart(
-        radar_rank_chart(trends),
-        width="stretch",
-        config={"displayModeBar": False},
-    )
+    if ready_trends:
+        st.plotly_chart(
+            radar_rank_chart(ready_trends),
+            width="stretch",
+            config={"displayModeBar": False},
+        )
+    else:
+        st.info(
+            "There are no decision-ready trends yet. Run a fresh Google + "
+            "social refresh; incomplete rows are retained below only for diagnosis."
+        )
     st.caption(
-        "The score is always 0–100. Raw growth percentages are kept in Analyst detail below, where they cannot distort the chart scale."
+        "Only rows with fresh Google demand plus at least one social, commercial "
+        "or Instagram confirmation appear in the decision chart."
     )
 
-    decisions = [business_decision(trend) for trend in trends]
+    decisions = [business_decision(trend) for trend in ready_trends]
     summary = st.columns(3)
     summary[0].metric("Act now", decisions.count("Act now"), "cross-source confirmation")
     summary[1].metric("Test this week", decisions.count("Test this week"), "small controlled test")
-    summary[2].metric("Watch", decisions.count("Watch"), "not yet a priority")
+    summary[2].metric("Awaiting validation", len(watchlist), "kept out of the action list")
 
     section_header("Ranked view", "The decision list")
-    table = pd.DataFrame(
-        [
-            {
-                "Rank": index + 1,
-                "Trend": trend.get("name"),
-                "Decision": business_decision(trend),
-                "Priority score": f"{float(trend.get('score') or 0):.0f}/100",
-                "Google demand": (
-                    f"{float(trend.get('google_score')):.0f}/100"
-                    if trend.get("google_score") is not None
-                    else "Not available"
+    if ready_trends:
+        def best_social_score(trend: dict) -> float:
+            values = [
+                float(value)
+                for value in (
+                    trend.get("x_score"),
+                    trend.get("expert_score"),
+                    trend.get("visual_score"),
+                )
+                if value is not None
+            ]
+            return max(values) if values else 0.0
+
+        table = pd.DataFrame(
+            [
+                {
+                    "Rank": index + 1,
+                    "Trend": trend.get("name"),
+                    "Decision": business_decision(trend),
+                    "Priority score": f"{float(trend.get('score') or 0):.0f}/100",
+                    "Google demand": f"{float(trend.get('google_score')):.0f}/100",
+                    "Social confirmation": f"{best_social_score(trend):.0f}/100",
+                    "Evidence mix": " + ".join(trend.get("sources") or []),
+                    "Confidence": trend.get("confidence"),
+                }
+                for index, trend in enumerate(ready_trends)
+            ]
+        )
+        st.dataframe(table, hide_index=True, width="stretch")
+    else:
+        st.caption("No complete row is available for the decision list.")
+
+    if watchlist:
+        with st.expander(
+            f"Watchlist waiting for source confirmation ({len(watchlist)})"
+        ):
+            st.dataframe(
+                pd.DataFrame(
+                    [
+                        {
+                            "Trend": trend.get("name"),
+                            "Current score": f"{float(trend.get('score') or 0):.0f}/100",
+                            "Missing evidence": ", ".join(
+                                trend.get("missing_components") or []
+                            )
+                            or "Stale Google evidence",
+                            "Status": "Not decision-ready",
+                        }
+                        for trend in watchlist
+                    ]
                 ),
-                "X conversation": (
-                    f"{float(trend.get('x_score')):.0f}/100"
-                    if trend.get("x_score") is not None
-                    else "Not available"
-                ),
-                "Confidence": trend.get("confidence"),
-            }
-            for index, trend in enumerate(trends)
-        ]
-    )
-    st.dataframe(table, hide_index=True, width="stretch")
+                hide_index=True,
+                width="stretch",
+            )
+            st.caption(
+                "These rows are deliberately separated so a missing value cannot "
+                "look like a complete recommendation."
+            )
 
     with st.expander("Analyst detail · raw growth and evidence checks"):
         technical = pd.DataFrame(
@@ -613,32 +714,48 @@ def trend_radar(snapshot: dict) -> None:
                     "Expert mentions": int(trend.get("expert_mentions", 0)),
                     "Evidence quality": f"{float(trend.get('evidence_quality', 0)):.0f}/100",
                 }
-                for trend in trends
+                for trend in ready_trends
             ]
         )
-        st.dataframe(technical, hide_index=True, width="stretch")
+        if not technical.empty:
+            st.dataframe(technical, hide_index=True, width="stretch")
         st.caption(
             "Very large percentages often happen when the previous week had only one or two mentions. "
             "They are useful evidence, but they are not shown as chart axes."
         )
 
     section_header("Deep dive", "Inspect one signal")
-    selected_name = st.selectbox("Trend", [trend.get("name") for trend in trends], key="radar_trend")
-    selected = next(trend for trend in trends if trend.get("name") == selected_name)
+    inspectable = ready_trends or trends
+    selected_name = st.selectbox(
+        "Trend",
+        [trend.get("name") for trend in inspectable],
+        key="radar_trend",
+    )
+    selected = next(
+        trend for trend in inspectable if trend.get("name") == selected_name
+    )
     left, right = st.columns([1.6, 1], gap="large")
     with left:
-        st.plotly_chart(
-            line_chart([selected]), width="stretch", config={"displayModeBar": False}
-        )
+        chart_or_quality_note([selected])
+        if selected.get("series_issue"):
+            st.caption(str(selected.get("series_issue")))
     with right:
+        def component(value: object) -> str:
+            return (
+                f"{float(value):.0f}"
+                if value is not None
+                else "Not collected"
+            )
+
         st.markdown(f"### {selected.get('name')}")
         st.write(selected.get("why_now"))
         st.markdown(
             f"""
             <div class="score-row"><span>Combined signal</span><strong>{float(selected.get('score', 0)):.0f}</strong></div>
-            <div class="score-row"><span>Google component</span><strong>{float(selected.get('google_score') or 0):.0f}</strong></div>
-            <div class="score-row"><span>Open X component</span><strong>{float(selected.get('x_score') or 0):.0f}</strong></div>
-            <div class="score-row"><span>Commercial-source component</span><strong>{float(selected.get('expert_score') or 0):.0f}</strong></div>
+            <div class="score-row"><span>Google component</span><strong>{component(selected.get('google_score'))}</strong></div>
+            <div class="score-row"><span>Open X component</span><strong>{component(selected.get('x_score'))}</strong></div>
+            <div class="score-row"><span>Commercial-source component</span><strong>{component(selected.get('expert_score'))}</strong></div>
+            <div class="score-row"><span>Instagram visual component</span><strong>{component(selected.get('visual_score'))}</strong></div>
             <div class="score-row"><span>Priority-source mentions</span><strong>{int(selected.get('commercial_priority_mentions') or 0)}</strong></div>
             <div class="score-row"><span>Independent authors</span><strong>{int(selected.get('unique_authors') or 0)}</strong></div>
             <div class="score-row"><span>Evidence quality</span><strong>{float(selected.get('evidence_quality') or 0):.0f}</strong></div>
@@ -648,8 +765,7 @@ def trend_radar(snapshot: dict) -> None:
         )
         st.caption(
             "Evidence quality penalises duplicated, promotional and author-dominated conversation. "
-            "Commercial-source confirmation is scored separately from open topic discovery; "
-            "the priority accounts receive three times the evidence weight of supporting sources."
+            "A component that was not collected stays explicitly missing; the app never converts it to zero."
         )
 
 
@@ -680,7 +796,8 @@ def product_trend_picker(trends: list[dict]) -> str:
 
 
 def product_match_page(snapshot: dict) -> None:
-    trends = snapshot.get("trends", [])
+    all_trends = snapshot.get("trends", [])
+    trends = [trend for trend in all_trends if trend.get("decision_ready")]
     page_header(
         "PRODUCT MATCH · CATALOGUE",
         "Turn a signal into a sellable edit.",
@@ -688,6 +805,10 @@ def product_match_page(snapshot: dict) -> None:
     )
     mode_banner(snapshot.get("meta", {}))
     if not trends:
+        st.info(
+            "Product matching opens when at least one trend has fresh Google "
+            "demand plus social or commercial confirmation."
+        )
         return
     selected_name = product_trend_picker(trends)
     trend = next(item for item in trends if item.get("name") == selected_name)
@@ -741,9 +862,9 @@ def fallback_campaign(trend: dict, products: list[dict], channel: str, objective
         "story_frames": [
             f"Frame 1: '{trend.get('name')} is rising' with one evidence point",
             "Frame 2: product poll — which piece would you wear?",
-            "Frame 3: link or Soho-store CTA",
+            "Frame 3: link, HULA Soho or The Hub CTA",
         ],
-        "cta": "Shop the edit online or visit HULA Soho before the one-of-one pieces are gone.",
+        "cta": "Shop the edit online, visit HULA Soho or discover it at The Hub before the one-of-one pieces are gone.",
         "proof_points": [f"Objective: {objective}", f"Format: {channel}", "Pre-owned designer fashion", "One-of-one availability"],
         "avoid": ["Do not call an item rare, runway or archival without verified product evidence."],
     }
@@ -783,7 +904,11 @@ def campaign_markdown(brief: dict) -> str:
 
 
 def campaign_studio(snapshot: dict, settings: Settings) -> None:
-    trends = snapshot.get("trends", [])
+    trends = [
+        trend
+        for trend in snapshot.get("trends", [])
+        if trend.get("decision_ready")
+    ]
     products_by_id = product_lookup(snapshot)
     page_header(
         "CAMPAIGN STUDIO · QWEN",
@@ -804,8 +929,28 @@ def campaign_studio(snapshot: dict, settings: Settings) -> None:
         format_func=lambda product_id: f"{products_by_id[product_id].get('vendor')} · {products_by_id[product_id].get('title')}",
     )
     left, right = st.columns(2)
-    channel = left.selectbox("Format", ["Instagram Reel", "Instagram carousel", "Email", "Blog post", "Soho store activation"])
-    objective = right.selectbox("Objective", ["Drive product discovery", "Bring visits to Soho", "Sell one-of-one pieces", "Build fashion authority", "Re-engage VIPs"])
+    channel = left.selectbox(
+        "Format",
+        [
+            "Instagram Reel",
+            "Instagram carousel",
+            "Email",
+            "Blog post",
+            "Soho store activation",
+            "The Hub store activation",
+        ],
+    )
+    objective = right.selectbox(
+        "Objective",
+        [
+            "Drive product discovery",
+            "Bring visits to Soho",
+            "Bring visits to The Hub",
+            "Sell one-of-one pieces",
+            "Build fashion authority",
+            "Re-engage VIPs",
+        ],
+    )
     selected_products = [products_by_id[product_id] for product_id in selected_ids]
     if st.button("Generate campaign brief", type="primary", disabled=not selected_products):
         with st.spinner("Building the brief from the selected evidence and products…"):
@@ -886,6 +1031,283 @@ def campaign_studio(snapshot: dict, settings: Settings) -> None:
         )
 
 
+def blog_download_markdown(blog: dict) -> str:
+    notes = "\n".join(
+        f"- {note}" for note in blog.get("editorial_notes") or []
+    )
+    sources = "\n".join(
+        f"- [{source.get('title')}]({source.get('url')})"
+        for source in blog.get("sources") or []
+    )
+    return f"""# {blog.get('title', 'HULA weekly edit')}
+
+{blog.get('dek', '')}
+
+{blog.get('body_markdown', '')}
+
+---
+
+## Editorial QA notes
+{notes or '- No additional notes.'}
+
+## Research sources
+{sources or '- No grounded sources were returned.'}
+"""
+
+
+def weekly_blog(snapshot: dict, settings: Settings) -> None:
+    trends = [
+        trend
+        for trend in snapshot.get("trends", [])
+        if trend.get("decision_ready")
+    ]
+    page_header(
+        "WEDNESDAY BLOG · GEMINI RESEARCH",
+        "Turn this week's signal into a story worth reading.",
+        "Choose the trend, products and business reason. Gemini researches live public sources; uncertain celebrity, runway and archive claims stay outside the publishable draft.",
+    )
+    mode_banner(snapshot.get("meta", {}))
+    if not trends:
+        st.info(
+            "A researched draft can be generated once a trend has fresh Google "
+            "demand plus social or commercial confirmation."
+        )
+        return
+
+    products = product_lookup(snapshot)
+    selected_name = st.selectbox(
+        "Trend",
+        [trend.get("name") for trend in trends],
+        key="blog_trend",
+    )
+    trend = next(
+        item for item in trends if item.get("name") == selected_name
+    )
+    matches = recommendation_rows(snapshot, str(trend.get("id")))
+    candidate_ids = [
+        str(row.get("product_id"))
+        for row in matches
+        if str(row.get("product_id")) in products
+    ]
+    selected_ids = st.multiselect(
+        "HULA products",
+        candidate_ids,
+        default=candidate_ids[:5],
+        max_selections=5,
+        format_func=lambda product_id: (
+            f"{products[product_id].get('vendor')} · "
+            f"{products[product_id].get('title')}"
+        ),
+    )
+    left, right = st.columns([1.15, 1])
+    reason = left.selectbox(
+        "Reason for the new blog or post",
+        [
+            "This week's strongest product trend",
+            "New HULA products",
+            "Soho store moment",
+            "The Hub store moment",
+            "Designer or archive story",
+            "Circular-fashion education",
+        ],
+    )
+    stores = right.multiselect(
+        "Relevant destinations",
+        ["Online", "HULA Soho", "The Hub"],
+        default=["Online", "HULA Soho", "The Hub"],
+    )
+    selected_products = [products[product_id] for product_id in selected_ids]
+    if st.button(
+        "Generate researched blog",
+        type="primary",
+        disabled=not selected_products,
+    ):
+        with st.spinner(
+            "Researching the trend, exact products, runway context and verified worn-by references…"
+        ):
+            try:
+                if not settings.gemini_configured:
+                    raise RuntimeError(
+                        "Gemini is not configured in this deployed copy."
+                    )
+                blog = generate_researched_blog(
+                    GeminiResearchConnector(
+                        settings.gemini_api_key,
+                        model=settings.gemini_model,
+                        api_url=settings.gemini_api_url,
+                        timeout_seconds=settings.gemini_timeout_seconds,
+                        grounding_enabled=settings.gemini_grounding_enabled,
+                    ),
+                    trend,
+                    selected_products,
+                    reason=reason,
+                    stores=stores,
+                )
+                source = settings.gemini_model
+                st.session_state.pop("blog_generation_error", None)
+            except Exception as exc:
+                blog = fallback_blog(
+                    trend,
+                    selected_products,
+                    reason=reason,
+                    stores=stores,
+                )
+                source = "safe fallback"
+                st.session_state.blog_generation_error = safe_error(
+                    exc,
+                    [settings.gemini_api_key],
+                )
+            updated = dict(snapshot)
+            editorial = dict(updated.get("editorial") or {})
+            editorial["latest_blog"] = blog
+            updated["editorial"] = editorial
+            save_snapshot(updated, settings.snapshot_path)
+            st.session_state.snapshot = updated
+            st.session_state.blog_source = source
+            if settings.supabase_configured:
+                try:
+                    store = SupabaseStore(
+                        settings.supabase_url,
+                        settings.supabase_secret_key,
+                        snapshot_table=settings.supabase_snapshot_table,
+                        blog_table=settings.supabase_blog_table,
+                    )
+                    store.save_snapshot(updated)
+                    store.save_blog(blog)
+                except Exception as exc:
+                    st.warning(
+                        "The draft was saved locally, but Supabase history could "
+                        f"not be updated: {safe_error(exc, [settings.supabase_secret_key])}"
+                    )
+
+    blog = (
+        (st.session_state.get("snapshot") or snapshot)
+        .get("editorial", {})
+        .get("latest_blog")
+    )
+    if not isinstance(blog, dict):
+        st.markdown(
+            '<div class="method-note"><strong>No draft yet.</strong> The scheduled Wednesday refresh can generate the lead draft automatically, or create one here for any decision-ready trend.</div>',
+            unsafe_allow_html=True,
+        )
+        return
+
+    section_header("Editable draft", str(blog.get("title") or "HULA weekly edit"))
+    st.caption(
+        f"Generated with {blog.get('model') or st.session_state.get('blog_source', 'the configured model')} · "
+        f"{'grounded public-web research' if blog.get('grounded') else 'unresearched fallback'}"
+    )
+    title = st.text_input(
+        "Title",
+        value=str(blog.get("title") or ""),
+        key=f"blog_title_{blog.get('generated_at', 'latest')}",
+    )
+    dek = st.text_area(
+        "Dek",
+        value=str(blog.get("dek") or ""),
+        height=90,
+        key=f"blog_dek_{blog.get('generated_at', 'latest')}",
+    )
+    body = st.text_area(
+        "Blog body (Markdown)",
+        value=str(blog.get("body_markdown") or ""),
+        height=620,
+        key=f"blog_body_{blog.get('generated_at', 'latest')}",
+    )
+    actions = st.columns(2)
+    if actions[0].button("Save edited draft", width="stretch"):
+        edited = {**blog, "title": title, "dek": dek, "body_markdown": body}
+        updated = dict(st.session_state.get("snapshot") or snapshot)
+        editorial = dict(updated.get("editorial") or {})
+        editorial["latest_blog"] = edited
+        updated["editorial"] = editorial
+        save_snapshot(updated, settings.snapshot_path)
+        st.session_state.snapshot = updated
+        if settings.supabase_configured:
+            try:
+                store = SupabaseStore(
+                    settings.supabase_url,
+                    settings.supabase_secret_key,
+                    snapshot_table=settings.supabase_snapshot_table,
+                    blog_table=settings.supabase_blog_table,
+                )
+                store.save_snapshot(updated)
+                store.save_blog(edited)
+            except Exception as exc:
+                st.warning(
+                    "Edited draft saved locally; Supabase history failed: "
+                    + safe_error(exc, [settings.supabase_secret_key])
+                )
+        st.success("Edited draft saved.")
+    actions[1].download_button(
+        "Download Shopify-ready Markdown",
+        data=blog_download_markdown(
+            {**blog, "title": title, "dek": dek, "body_markdown": body}
+        ),
+        file_name=f"hula-{blog.get('trend_id', 'weekly')}-blog.md",
+        mime="text/markdown",
+        width="stretch",
+    )
+
+    error = st.session_state.get("blog_generation_error")
+    if error:
+        st.error(
+            "Gemini research was unavailable, so the displayed draft contains "
+            f"no web-derived claims. {error}"
+        )
+
+    claims = list(blog.get("claims") or [])
+    sources = list(blog.get("sources") or [])
+    section_header("Evidence check", "What may and may not be published as fact")
+    metrics = st.columns(3)
+    metrics[0].metric(
+        "Confirmed claims",
+        sum(claim.get("status") == "confirmed" for claim in claims),
+    )
+    metrics[1].metric(
+        "Needs review",
+        sum(claim.get("status") != "confirmed" for claim in claims),
+    )
+    metrics[2].metric("Grounded sources", len(sources))
+    if claims:
+        st.dataframe(
+            pd.DataFrame(
+                [
+                    {
+                        "Claim": claim.get("claim"),
+                        "Evidence status": claim.get("status"),
+                        "Product": claim.get("product_id") or "—",
+                        "Sources": ", ".join(
+                            str(index)
+                            for index in claim.get("source_indices") or []
+                        )
+                        or "—",
+                        "Editorial note": claim.get("evidence_note"),
+                    }
+                    for claim in claims
+                ]
+            ),
+            hide_index=True,
+            width="stretch",
+        )
+    if sources:
+        st.dataframe(
+            pd.DataFrame(
+                [
+                    {
+                        "#": source.get("index"),
+                        "Source": source.get("title"),
+                        "URL": source.get("url"),
+                    }
+                    for source in sources
+                ]
+            ),
+            hide_index=True,
+            width="stretch",
+            column_config={"URL": st.column_config.LinkColumn("URL")},
+        )
+
+
 def status_class(value: str) -> str:
     lowered = value.lower()
     if "live" in lowered:
@@ -906,7 +1328,6 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
     notice = st.session_state.pop("catalogue_notice", "")
     if notice:
         st.success(notice)
-    cards = st.columns(4)
     if meta.get("catalogue_source") == "csv":
         catalogue_detail = f"Imported: {len(snapshot.get('products', [])):,} normalised products"
     else:
@@ -938,6 +1359,21 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
             ),
         ),
         (
+            "Instagram panel",
+            str(
+                status.get(
+                    "instagram",
+                    "configured"
+                    if settings.instagram_configured
+                    else "not configured",
+                )
+            ),
+            (
+                f"{len(settings.instagram_accounts)} approved profiles · "
+                f"Credentials: {'added' if settings.instagram_configured else 'missing'}"
+            ),
+        ),
+        (
             "Catalogue",
             str(status.get("shopify", "configured" if settings.shopify_configured else "not configured")),
             catalogue_detail,
@@ -947,20 +1383,52 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
             str(status.get("openrouter", "configured" if settings.openrouter_configured else "not configured")),
             f"Credentials: {'added' if settings.openrouter_configured else 'missing'}",
         ),
+        (
+            "Supabase history",
+            str(
+                status.get(
+                    "supabase",
+                    "configured"
+                    if settings.supabase_configured
+                    else "not configured",
+                )
+            ),
+            f"Credentials: {'added' if settings.supabase_configured else 'missing'}",
+        ),
+        (
+            "Gemini research",
+            str(
+                status.get(
+                    "gemini",
+                    "configured"
+                    if settings.gemini_configured
+                    else "not configured",
+                )
+            ),
+            (
+                f"Model: {settings.gemini_model} · "
+                f"Credentials: {'added' if settings.gemini_configured else 'missing'}"
+            ),
+        ),
     ]
-    for column, (name, value, detail) in zip(cards, definitions):
-        with column:
-            css_class = status_class(value)
-            st.markdown(
-                f"""
-                  <div class="source-card">
-                  <div class="source-name">{html.escape(name)}</div>
-                  <div class="source-state"><span class="dot {css_class}"></span>{html.escape(value)}</div>
-                  <div class="micro">{html.escape(detail)}</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+    for start in range(0, len(definitions), 3):
+        cards = st.columns(3)
+        for column, (name, value, detail) in zip(
+            cards,
+            definitions[start : start + 3],
+        ):
+            with column:
+                css_class = status_class(value)
+                st.markdown(
+                    f"""
+                      <div class="source-card">
+                      <div class="source-name">{html.escape(name)}</div>
+                      <div class="source-state"><span class="dot {css_class}"></span>{html.escape(value)}</div>
+                      <div class="micro">{html.escape(detail)}</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
 
     section_header("Diagnostics", "Expected hybrid inputs versus genuine failures")
     st.write(
@@ -973,6 +1441,9 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
         apify_configured=settings.apify_configured,
         shopify_configured=settings.shopify_configured,
         openrouter_configured=settings.openrouter_configured,
+        instagram_configured=settings.instagram_configured,
+        supabase_configured=settings.supabase_configured,
+        gemini_configured=settings.gemini_configured,
     )
     st.dataframe(pd.DataFrame(diagnostics), hide_index=True, width="stretch")
     report = diagnostic_report(
@@ -985,6 +1456,9 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
         openrouter_model=settings.openrouter_model,
         google_provider=settings.google_provider,
         google_geo=settings.google_geo,
+        instagram_configured=settings.instagram_configured,
+        supabase_configured=settings.supabase_configured,
+        gemini_configured=settings.gemini_configured,
     )
     st.download_button(
         "Download safe diagnostic report",
@@ -1113,10 +1587,10 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
         width="stretch",
     )
     st.caption(
-        "The automated X layer applies a 3× evidence multiplier to Who What Wear, "
-        "Who What Wear UK and Lyst. Data But Make It Fashion and Tagwalk remain "
-        "high-priority human checks through their official Instagram/site outputs; "
-        "the app does not silently scrape Instagram."
+        "The automated Instagram panel applies a 3× evidence multiplier to Data But "
+        "Make It Fashion, Tagwalk, Who What Wear, Who What Wear UK and Lyst, and a 2× "
+        "multiplier to the approved specialist panel. Who What Wear, Who What Wear UK "
+        "and Lyst are also monitored on X; one publisher is counted once per trend."
     )
 
     section_header(
@@ -1469,8 +1943,111 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
                 str(openrouter_test.get("detail", "No diagnostic detail was returned."))
             )
 
+    platform_tests = st.columns(3)
+    with platform_tests[0]:
+        if st.button(
+            "Test Instagram Actor",
+            disabled=not settings.instagram_configured,
+            width="stretch",
+        ):
+            try:
+                result = ApifyInstagramConnector(
+                    settings.apify_token,
+                    actor_id=settings.apify_instagram_actor_id,
+                    timeout_seconds=settings.apify_timeout_seconds,
+                    memory_mb=settings.apify_x_memory_mb,
+                ).test_connection()
+                st.session_state.instagram_test_result = {
+                    "ok": True,
+                    "detail": (
+                        f"Actor available: {result.get('actor_username')}/"
+                        f"{result.get('actor_name')} · "
+                        f"{len(settings.instagram_accounts)} approved profiles."
+                    ),
+                }
+            except Exception as exc:
+                st.session_state.instagram_test_result = {
+                    "ok": False,
+                    "detail": safe_error(exc, [settings.apify_token]),
+                }
+        instagram_test = st.session_state.get("instagram_test_result")
+        if isinstance(instagram_test, dict):
+            (st.success if instagram_test.get("ok") else st.error)(
+                str(instagram_test.get("detail", "No diagnostic detail was returned."))
+            )
+        st.caption("Checks the maintained Instagram Post Scraper without starting a paid run.")
+
+    with platform_tests[1]:
+        if st.button(
+            "Test Supabase history",
+            disabled=not settings.supabase_configured,
+            width="stretch",
+        ):
+            try:
+                result = SupabaseStore(
+                    settings.supabase_url,
+                    settings.supabase_secret_key,
+                    snapshot_table=settings.supabase_snapshot_table,
+                    blog_table=settings.supabase_blog_table,
+                ).test_connection()
+                st.session_state.supabase_test_result = {
+                    "ok": True,
+                    "detail": (
+                        f"Connected to {result.get('snapshot_table')} · "
+                        f"{int(result.get('rows_visible') or 0)} row(s) visible."
+                    ),
+                }
+            except Exception as exc:
+                st.session_state.supabase_test_result = {
+                    "ok": False,
+                    "detail": safe_error(exc, [settings.supabase_secret_key]),
+                }
+        supabase_test = st.session_state.get("supabase_test_result")
+        if isinstance(supabase_test, dict):
+            (st.success if supabase_test.get("ok") else st.error)(
+                str(supabase_test.get("detail", "No diagnostic detail was returned."))
+            )
+        st.caption("If the tables are missing, run supabase/schema.sql once.")
+
+    with platform_tests[2]:
+        if st.button(
+            "Test Gemini research",
+            disabled=not settings.gemini_configured,
+            width="stretch",
+        ):
+            try:
+                result = GeminiResearchConnector(
+                    settings.gemini_api_key,
+                    model=settings.gemini_model,
+                    api_url=settings.gemini_api_url,
+                    timeout_seconds=settings.gemini_timeout_seconds,
+                    grounding_enabled=settings.gemini_grounding_enabled,
+                ).test_connection()
+                st.session_state.gemini_test_result = {
+                    "ok": True,
+                    "detail": f"Connected successfully to {result.get('model')}.",
+                }
+            except Exception as exc:
+                st.session_state.gemini_test_result = {
+                    "ok": False,
+                    "detail": safe_error(exc, [settings.gemini_api_key]),
+                }
+        gemini_test = st.session_state.get("gemini_test_result")
+        if isinstance(gemini_test, dict):
+            (st.success if gemini_test.get("ok") else st.error)(
+                str(gemini_test.get("detail", "No diagnostic detail was returned."))
+            )
+
     section_header("Live refresh", "Run the full evidence pipeline")
     include_llm = st.checkbox("Use Qwen to label and enrich trends", value=settings.openrouter_configured)
+    include_editorial = st.checkbox(
+        "Generate the researched Wednesday blog after ranking",
+        value=settings.gemini_configured,
+        help=(
+            "Gemini only researches the highest decision-ready trend after the "
+            "deterministic ranking is complete."
+        ),
+    )
     catalog_source, catalog_products = catalogue_refresh_args(snapshot)
     refresh_ready = not (
         (catalog_source == "csv" and not catalog_products)
@@ -1496,6 +2073,7 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
                     persist=True,
                     catalog_source=catalog_source,
                     catalog_products=catalog_products,
+                    generate_editorial=include_editorial,
                 )
                 st.session_state.snapshot = refreshed
                 st.session_state.catalogue_notice = "Refresh complete. The dashboard now uses the new snapshot."
@@ -1509,13 +2087,16 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
                             settings.apify_token,
                             settings.serpapi_api_key,
                             settings.openrouter_api_key,
+                            settings.gemini_api_key,
+                            settings.supabase_secret_key,
                             settings.shopify_client_secret,
                             settings.shopify_admin_access_token,
                         ],
                     )
                 )
     st.caption(
-        "The scheduled GitHub workflow runs every Wednesday at 09:17 Hong Kong time and keeps the last selected catalogue source."
+        "The scheduled GitHub workflow runs every Wednesday at 09:17 Hong Kong time, "
+        "keeps the last selected catalogue source and creates the researched lead draft."
     )
 
     with st.expander("Manual Google Trends CSV fallback"):
@@ -1565,15 +2146,15 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
     for column, number, title, copy in [
         (signal_method[0], "35%", "Google Trends worldwide", "Global search-demand momentum."),
         (signal_method[1], "20%", "Open X topics", "Independent-author and post growth across broad topic searches."),
-        (signal_method[2], "35%", "Commercial source panel", "Priority confirmation led by the five selected sources."),
-        (signal_method[3], "10%", "Visual validation", "Reserved for TikTok or Pinterest evidence when available."),
+        (signal_method[2], "35%", "Commercial source panel", "Priority confirmation across approved Instagram and X publishers."),
+        (signal_method[3], "10%", "Instagram visual validation", "Fresh carousel, reel and image evidence from the approved panel."),
     ]:
         with column:
             st.metric(title, number)
             st.caption(copy)
     st.caption(
         "The score automatically reweights across sources that actually supplied evidence; an unavailable "
-        "visual source is never treated as a zero. X evidence is reduced when duplicates, promotional posts "
+        "source is never treated as a zero. X evidence is reduced when duplicates, promotional posts "
         "or one dominant author make a topic less trustworthy."
     )
 
@@ -1589,7 +2170,7 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
             st.metric(title, number)
             st.caption(copy)
     st.markdown(
-        '<div class="method-note"><strong>Data minimisation:</strong> raw X posts and author identifiers are held only during the refresh. Author identifiers are one-way hashed in memory to count independent sources, then discarded; the snapshot stores aggregates only. A product CSV is normalised into product fields and the raw upload is not retained separately. The API requests read-only Shopify scopes and does not read customers, orders or payment data. Qwen receives aggregated candidate phrases, trend evidence and selected product metadata only.</div>',
+        '<div class="method-note"><strong>Data minimisation:</strong> raw X and Instagram posts are held only during the refresh. Publisher identifiers are one-way hashed for breadth counts, then discarded; the snapshot stores aggregates and accepted evidence URLs only. Public Instagram image URLs are sent to Qwen only for the capped visual-reading pass and are not retained in the aggregate snapshot. A product CSV is normalised into product fields and the raw upload is not retained separately. The API requests read-only Shopify scopes and does not read customers, orders or payment data. Gemini receives only public trend and selected-product information.</div>',
         unsafe_allow_html=True,
     )
     warnings = meta.get("warnings", [])
@@ -1608,7 +2189,14 @@ def sidebar(snapshot: dict, settings: Settings) -> str:
         )
         page = st.radio(
             "Navigation",
-            ["THIS WEEK", "TREND RADAR", "PRODUCT MATCH", "CAMPAIGN STUDIO", "DATA & SETUP"],
+            [
+                "THIS WEEK",
+                "TREND RADAR",
+                "PRODUCT MATCH",
+                "CAMPAIGN STUDIO",
+                "WEDNESDAY BLOG",
+                "DATA & SETUP",
+            ],
             label_visibility="collapsed",
         )
         st.divider()
@@ -1634,6 +2222,7 @@ def sidebar(snapshot: dict, settings: Settings) -> str:
                         persist=True,
                         catalog_source=catalog_source,
                         catalog_products=catalog_products,
+                        generate_editorial=True,
                     )
                     st.rerun()
                 except Exception as exc:
@@ -1651,10 +2240,38 @@ def main() -> None:
     require_password(settings)
     if "snapshot" not in st.session_state:
         stored = load_snapshot(ROOT / settings.snapshot_path)
-        st.session_state.snapshot = sanitize_snapshot_trends(stored or demo_snapshot())
+        selected = stored or demo_snapshot()
+        if settings.supabase_configured:
+            try:
+                remote = SupabaseStore(
+                    settings.supabase_url,
+                    settings.supabase_secret_key,
+                    snapshot_table=settings.supabase_snapshot_table,
+                    blog_table=settings.supabase_blog_table,
+                ).load_latest_snapshot()
+                local_at = parse_utc((selected.get("meta") or {}).get("generated_at"))
+                remote_at = parse_utc(
+                    ((remote or {}).get("meta") or {}).get("generated_at")
+                )
+                if remote and (
+                    local_at is None or (remote_at is not None and remote_at > local_at)
+                ):
+                    selected = remote
+            except Exception as exc:
+                st.session_state.snapshot_boot_warning = safe_error(
+                    exc,
+                    [settings.supabase_secret_key],
+                )
+        st.session_state.snapshot = sanitize_snapshot_trends(selected)
     snapshot = sanitize_snapshot_trends(st.session_state.snapshot)
     st.session_state.snapshot = snapshot
     page = sidebar(snapshot, settings)
+    boot_warning = st.session_state.pop("snapshot_boot_warning", "")
+    if boot_warning:
+        st.warning(
+            "Supabase history could not be loaded at startup; the newest local "
+            f"aggregate is displayed. {boot_warning}"
+        )
     if page == "THIS WEEK":
         this_week(snapshot)
     elif page == "TREND RADAR":
@@ -1663,6 +2280,8 @@ def main() -> None:
         product_match_page(snapshot)
     elif page == "CAMPAIGN STUDIO":
         campaign_studio(snapshot, settings)
+    elif page == "WEDNESDAY BLOG":
+        weekly_blog(snapshot, settings)
     else:
         data_setup(snapshot, settings)
 

@@ -11,7 +11,7 @@ from src.connectors.apify_runtime import (
     is_capacity_failure,
 )
 from src.connectors.apify_x import ApifyXConnector
-from src.pipeline import _google_cache_state
+from src.pipeline import _cache_state
 
 
 class FakeResponse:
@@ -120,13 +120,17 @@ def test_google_cache_is_scoped_to_market_and_timeframe() -> None:
         "google_cache": {
             "collected_at": datetime.now(tz=timezone.utc).isoformat(),
             "market": "HK",
-            "timeframe": "today 3-m",
-            "series": {"black bags": [{"date": "2026-07-01", "value": 50}]},
+            "context_timeframe": "today 1-m",
+            "discovery_timeframe": "now 7-d",
+            "context_series": {
+                "black bags": [{"date": "2026-07-01", "value": 50}]
+            },
+            "recent_series": {},
         }
     }
-    cache, age = _google_cache_state(snapshot, Settings(google_geo="HK"))
+    cache, age = _cache_state(snapshot, Settings(google_geo="HK"))
     assert cache["market"] == "HK"
     assert age is not None and age < 1
 
-    wrong_market, _ = _google_cache_state(snapshot, Settings(google_geo="US"))
+    wrong_market, _ = _cache_state(snapshot, Settings(google_geo="US"))
     assert wrong_market == {}

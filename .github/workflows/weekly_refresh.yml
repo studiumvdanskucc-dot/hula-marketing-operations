@@ -33,7 +33,15 @@ jobs:
       APIFY_EXPERT_RESULTS_PER_QUERY: "35"
       APIFY_MAX_TOTAL_CHARGE_USD: "0.25"
       X_LANGUAGE: "en"
+      X_PRIORITY_ACCOUNTS: "WhoWhatWear,WhoWhatWearUK,Lyst"
       X_EXPERT_ACCOUNTS: "VogueRunway,VogueBusiness,BoF,WGSN,Lyst,WhoWhatWear,HYPEBEAST,Highsnobiety,Fashionista_com,Dazed,i_D,BritishVogue,VogueHongKong,TatlerAsia,VestiaireCo,therealreal"
+      INSTAGRAM_ENABLED: "true"
+      APIFY_INSTAGRAM_ACTOR_ID: "apify~instagram-post-scraper"
+      INSTAGRAM_RESULTS_PER_PROFILE: "15"
+      INSTAGRAM_MAX_TOTAL_CHARGE_USD: "0.75"
+      INSTAGRAM_VISUAL_MAX_POSTS: "10"
+      INSTAGRAM_PRIORITY_ACCOUNTS: "databutmakeitfashion,tagwalk,whowhatwear,whowhatwear.uk,lyst"
+      INSTAGRAM_SPECIALIST_ACCOUNTS: "voguerunway,wgsn,trendalytics,edited_hq,heuritech"
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       OPENROUTER_API_URL: "https://openrouter.ai/api/v1/chat/completions"
       OPENROUTER_MODEL: "qwen/qwen3-vl-32b-instruct"
@@ -44,10 +52,18 @@ jobs:
       SERPAPI_ENDPOINT: "https://serpapi.com/search.json"
       SERPAPI_TIMEOUT_SECONDS: "75"
       GOOGLE_TRENDS_GEO: "WORLDWIDE"
-      GOOGLE_TRENDS_TIMEFRAME: "today 3-m"
+      GOOGLE_TRENDS_TIMEFRAME: "today 1-m"
+      GOOGLE_TRENDS_DISCOVERY_TIMEFRAME: "now 7-d"
       GOOGLE_TRENDS_ANCHOR_TERM: "designer fashion"
       GOOGLE_TRENDS_RELATED_QUERIES: "true"
       GOOGLE_TRENDS_PROVIDER: "serpapi"
+      GOOGLE_TRENDS_CACHE_HOURS: "24"
+      GOOGLE_TRENDS_STALE_CACHE_DAYS: "3"
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GEMINI_MODEL: "gemini-2.5-flash"
+      GEMINI_GROUNDING_ENABLED: "true"
       SNAPSHOT_PATH: "data/latest_snapshot.json"
 
     steps:

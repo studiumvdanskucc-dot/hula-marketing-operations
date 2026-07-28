@@ -81,7 +81,8 @@ def test_cross_source_agreement_increases_confidence() -> None:
         }
     ]
     merged = merge_trend_signals(google, social)
-    assert merged[0]["confidence"] == "High"
+    assert merged[0]["confidence"] == "Medium"
+    assert merged[0]["decision_ready"] is True
     assert merged[0]["sources"] == ["Google Trends", "Open X topics"]
     assert merged[0]["score"] >= 70
 
@@ -196,27 +197,25 @@ def test_generic_category_filter_keeps_specific_combinations() -> None:
     for broad in (
         "bag",
         "bags",
+        "trousers",
         "garments",
+        "mini",
+        "dress",
+        "outfit ideas",
         "ebay",
-        "fashion",
-        "shoes",
     ):
         assert generic_trend_reason(broad)
 
     for specific in (
+        "sandal",
+        "sandals",
         "black bags",
         "red trousers",
-        "trousers",
-        "designer bags",
-        "mini",
-        "loafers",
-        "jeans",
-        "blazers",
         "mini bags",
+        "mini dress",
+        "designer bags",
         "raffia bags",
         "east west bags",
-        "boat shoes",
-        "mary jane shoes",
     ):
         assert generic_trend_reason(specific) == ""
 

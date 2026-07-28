@@ -1,6 +1,6 @@
 # Google Trends through SerpApi
 
-Build `2026.07.26.1` uses worldwide Google Trends through SerpApi.
+Build `2026.07.28.1` uses worldwide Google Trends through SerpApi.
 SerpApi makes the Google-facing request and returns structured Trends data, so
 the Streamlit app does not launch another Actor and does not connect to
 `trends.google.com` directly.
@@ -32,16 +32,17 @@ Never commit the key to the repository.
 ## Bounded weekly use
 
 The app omits the country parameter so Google Trends returns worldwide data.
-One full live refresh is capped at:
+One full live refresh is bounded by:
 
-- three Interest over time comparisons, covering up to 12 fashion terms;
-- two related-query searches;
-- five SerpApi searches in total.
+- rising-query discovery over `now 7-d`;
+- one-month validation over `today 1-m`;
+- seven-day acceleration for the same capped candidate set.
 
 The small connection test uses one search. A successful full result is cached
 for 24 hours, so repeated refresh clicks during the same day do not spend more
-searches. A compatible last-good result can be retained for seven days if a
-later API call fails.
+searches. A compatible last-good result can be displayed for three days if a
+later API call fails, but anything older than 24 hours is labelled stale and
+cannot enter the decision list.
 
 The current SerpApi free plan includes 250 searches per month. A weekly refresh
 uses about 20 searches per month; even one full refresh every day remains below
@@ -56,11 +57,12 @@ SERPAPI_ENDPOINT = "https://serpapi.com/search.json"
 SERPAPI_TIMEOUT_SECONDS = "75"
 GOOGLE_TRENDS_PROVIDER = "auto"
 GOOGLE_TRENDS_GEO = "WORLDWIDE"
-GOOGLE_TRENDS_TIMEFRAME = "today 3-m"
+GOOGLE_TRENDS_TIMEFRAME = "today 1-m"
+GOOGLE_TRENDS_DISCOVERY_TIMEFRAME = "now 7-d"
 GOOGLE_TRENDS_MAX_TERMS = "12"
 GOOGLE_TRENDS_MAX_DISCOVERY_SEEDS = "2"
 GOOGLE_TRENDS_CACHE_HOURS = "24"
-GOOGLE_TRENDS_STALE_CACHE_DAYS = "7"
+GOOGLE_TRENDS_STALE_CACHE_DAYS = "3"
 ```
 
 `auto` means SerpApi. It deliberately does not silently return to the failing
@@ -79,6 +81,8 @@ message must say:
 
 The full refresh status and safe diagnostic report also record the provider,
 market, term count, request count and cache age without including the API key.
+Invariant or malformed series are counted in the diagnostic and excluded from
+both scoring and charts.
 
 ## Common errors
 

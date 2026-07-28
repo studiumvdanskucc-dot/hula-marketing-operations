@@ -61,7 +61,7 @@ class OpenRouterConnector:
     def call_json(
         self,
         system: str,
-        user: str,
+        user: str | list[dict[str, Any]],
         *,
         temperature: float = 0.2,
         max_tokens: int = 1800,
@@ -131,6 +131,83 @@ class OpenRouterConnector:
                 for part in content
             )
         return _extract_json(str(content))
+
+    def extract_instagram_visual_terms(
+        self,
+        posts: list[dict[str, Any]],
+        *,
+        max_posts: int = 10,
+    ) -> dict[str, list[str]]:
+        """Read trend labels visible inside selected public Instagram graphics."""
+
+        selected = [
+            post
+            for post in posts
+            if post.get("media_urls") and post.get("post_hash")
+        ][: max(1, int(max_posts))]
+        if not selected:
+            return {}
+
+        parts: list[dict[str, Any]] = [
+            {
+                "type": "text",
+                "text": (
+                    "Inspect each public Instagram image below. Extract only concrete "
+                    "fashion trend names visibly supported by the image or caption. "
+                    "Ignore generic labels such as fashion, outfit ideas, dress, trousers, "
+                    "style and trend. Return JSON in the exact shape "
+                    '{"posts":[{"post_hash":"...","visual_terms":["mini dress"]}]}. '
+                    "Use the supplied post_hash exactly. Return an empty visual_terms list "
+                    "when the visual does not support a specific fashion product, material, "
+                    "silhouette, colour combination or named aesthetic."
+                ),
+            }
+        ]
+        for post in selected:
+            parts.append(
+                {
+                    "type": "text",
+                    "text": json.dumps(
+                        {
+                            "post_hash": post.get("post_hash"),
+                            "source": post.get("source_account"),
+                            "caption": str(post.get("text") or "")[:700],
+                        },
+                        ensure_ascii=False,
+                    ),
+                }
+            )
+            parts.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": str(post["media_urls"][0])},
+                }
+            )
+        result = self.call_json(
+            (
+                "You are a conservative fashion-visual taxonomy analyst. "
+                "Do not infer a trend from a person, logo or setting alone. "
+                "Return strict JSON and no markdown."
+            ),
+            parts,
+            temperature=0,
+            max_tokens=1800,
+        )
+        output: dict[str, list[str]] = {}
+        allowed_ids = {str(post.get("post_hash")) for post in selected}
+        for row in result.get("posts") or []:
+            if not isinstance(row, dict):
+                continue
+            post_hash = str(row.get("post_hash") or "")
+            if post_hash not in allowed_ids:
+                continue
+            terms = [
+                str(term).strip()
+                for term in row.get("visual_terms") or []
+                if str(term).strip()
+            ]
+            output[post_hash] = list(dict.fromkeys(terms))[:8]
+        return output
 
     def test_connection(self) -> dict[str, Any]:
         result = self.call_json(

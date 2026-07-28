@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import time
-from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import quote
 
@@ -10,6 +10,7 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
+from src.analysis.freshness import parse_utc
 from src.connectors.apify_runtime import (
     ApifyCapacityError,
     TERMINAL_RUN_STATUSES,
@@ -92,7 +93,7 @@ def _first(record: dict[str, Any], fields: tuple[str, ...], default: Any = None)
 
 def _author_identifier(record: dict[str, Any]) -> str:
     for candidate in _record_candidates(record):
-        for field in (*AUTHOR_ID_FIELDS, *AUTHOR_NAME_FIELDS):
+        for field in (*AUTHOR_NAME_FIELDS, *AUTHOR_ID_FIELDS):
             value = candidate.get(field)
             if value not in (None, ""):
                 return str(value)
@@ -100,7 +101,7 @@ def _author_identifier(record: dict[str, Any]) -> str:
             value = candidate.get(nested)
             if not isinstance(value, dict):
                 continue
-            for field in ("id", "rest_id", *AUTHOR_ID_FIELDS, *AUTHOR_NAME_FIELDS):
+            for field in (*AUTHOR_NAME_FIELDS, "id", "rest_id", *AUTHOR_ID_FIELDS):
                 identifier = value.get(field)
                 if identifier not in (None, ""):
                     return str(identifier)
@@ -115,18 +116,20 @@ def _number(value: Any) -> int:
 
 
 def _iso_date(value: Any) -> str:
-    if isinstance(value, (int, float)):
-        timestamp = float(value)
-        if timestamp > 10_000_000_000:
-            timestamp /= 1000
-        return datetime.fromtimestamp(timestamp, tz=timezone.utc).isoformat()
-    if value:
-        return str(value)
-    return datetime.now(tz=timezone.utc).isoformat()
+    """Return a real source timestamp, never a fabricated current time."""
+
+    parsed = parse_utc(value)
+    return parsed.isoformat() if parsed is not None else ""
 
 
 def _hash(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()[:24] if value else ""
+
+
+def _publisher_key(value: str) -> str:
+    """Canonicalise the same publisher handle across X and Instagram."""
+
+    return re.sub(r"[^a-z0-9]", "", str(value or "").casefold())
 
 
 def _truthy(value: Any) -> bool:
@@ -144,7 +147,8 @@ def normalize_post(record: dict[str, Any]) -> dict[str, Any] | None:
     reshares = _number(_first(record, RESHARE_FIELDS, 0))
     replies = _number(_first(record, REPLY_FIELDS, 0))
     views = _number(_first(record, VIEW_FIELDS, 0))
-    author_hash = _hash(_author_identifier(record).strip().lower())
+    author_identifier = _author_identifier(record).strip().lower()
+    author_hash = _hash(_publisher_key(author_identifier))
     raw_post_id = str(_first(record, POST_ID_FIELDS, "")).strip()
     post_basis = raw_post_id or "|".join((text.lower(), created_at, author_hash))
     lowered = text.lower()
@@ -165,6 +169,8 @@ def normalize_post(record: dict[str, Any]) -> dict[str, Any] | None:
         "post_hash": _hash(post_basis),
         "is_probable_promo": promo_hits >= 2,
         "is_repost": is_repost,
+        "platform": "x",
+        "source_account": author_identifier.lstrip("@"),
     }
 
 

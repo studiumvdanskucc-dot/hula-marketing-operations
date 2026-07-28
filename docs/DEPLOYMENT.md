@@ -13,8 +13,8 @@ cp .env.example .env
 python -m streamlit run app.py
 ```
 
-Complete `.env`, then confirm Google Trends Worldwide, Apify and OpenRouter pass their
-connection checks. `.env` is ignored by Git and must never be committed.
+Complete `.env`, run `supabase/schema.sql`, then confirm all external
+connection checks pass. `.env` is ignored by Git and must never be committed.
 
 ## 2. Create a private GitHub repository
 
@@ -47,6 +47,9 @@ secret**. Add:
 - `APIFY_X_TASK_INPUT_JSON` with `{}`
 - `OPENROUTER_API_KEY`
 - `OPENROUTER_SITE_URL` after Streamlit gives you the final URL
+- `SUPABASE_URL`
+- `SUPABASE_SECRET_KEY`
+- `GEMINI_API_KEY`
 
 If the live Shopify API is configured, also add `SHOPIFY_SHOP`,
 `SHOPIFY_CLIENT_ID` and `SHOPIFY_CLIENT_SECRET`.
@@ -67,10 +70,10 @@ are added.
 4. Choose branch `main` and entrypoint `app.py`.
 5. Open **Advanced settings → Secrets**.
 6. Copy `.streamlit/secrets.toml.example` into the box and replace the
-   placeholders. At minimum, add the SerpApi, Apify, OpenRouter and team
-   password values.
+   placeholders. At minimum, add the SerpApi, Apify, OpenRouter, Supabase,
+   Gemini and team-password values.
 7. Select **Deploy**.
-8. Open the final URL and confirm the sidebar says **Build 2026.07.26.1**.
+8. Open the final URL and confirm the sidebar says **Build 2026.07.28.1**.
 
 The Streamlit and GitHub secrets stores are separate. The weekly Action needs
 its own copy of every secret used during an automated refresh.
@@ -98,9 +101,9 @@ weekly source of `data/latest_snapshot.json`.
 
 1. Wake/open the Streamlit app.
 2. Confirm the team password works.
-3. Confirm **Build 2026.07.26.1**.
+3. Confirm **Build 2026.07.28.1**.
 4. Run **Test Google Trends (Worldwide)**; it should report SerpApi and one search.
-5. Run the Apify and OpenRouter tests.
+5. Run the X, Instagram, OpenRouter, Supabase and Gemini tests.
 6. Run the GitHub workflow manually.
 7. Confirm it creates a `data: refresh weekly HULA trend snapshot` commit.
 8. Reopen the dashboard and confirm the refresh timestamp and live sources.

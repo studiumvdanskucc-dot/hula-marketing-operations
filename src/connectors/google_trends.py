@@ -109,14 +109,8 @@ def normalize_serpapi_interest(
                 if query:
                     by_query[query] = number
 
-            for term_index, term in enumerate(batch):
+            for term in batch:
                 number = by_query.get(term.casefold())
-                if number is None and term_index < len(values):
-                    value = values[term_index]
-                    if isinstance(value, dict):
-                        number = _as_float(
-                            value.get("extracted_value", value.get("value", 0))
-                        )
                 if number is not None:
                     raw_points[term].append((date, number))
 
@@ -197,7 +191,7 @@ class GoogleTrendsConnector:
     def __init__(
         self,
         geo: str = "WORLDWIDE",
-        timeframe: str = "today 3-m",
+        timeframe: str = "today 1-m",
         category: int = 0,
         anchor_term: str = "designer fashion",
         *,
@@ -212,7 +206,7 @@ class GoogleTrendsConnector:
     ) -> None:
         self.geo = normalize_google_geo(geo)
         self.market = google_market_label(geo)
-        self.timeframe = str(timeframe or "today 3-m").strip()
+        self.timeframe = str(timeframe or "today 1-m").strip()
         self.category = int(category or 0)
         self.anchor_term = str(anchor_term or "designer fashion").strip()
         self.provider = str(provider or "auto").strip().lower()
@@ -387,6 +381,65 @@ class GoogleTrendsConnector:
                 )
                 raise GoogleTrendsError(note) from exc
         raise GoogleTrendsError("No Google Trends provider was available.")
+
+    def discover_related(
+        self,
+        seeds: list[str],
+        *,
+        limit: int = 15,
+    ) -> dict[str, Any]:
+        """Discover rising phrases without spending timeline requests."""
+
+        cleaned = [
+            seed
+            for seed in dict.fromkeys(str(seed).strip() for seed in seeds)
+            if seed
+        ][: self.max_discovery_seeds]
+        if not cleaned:
+            return {
+                "related": [],
+                "warnings": [],
+                "provider": "SerpApi Google Trends",
+                "requests_used": 0,
+                "request_ceiling": 0,
+                "market": self.market,
+                "timeframe": self.timeframe,
+            }
+        self._provider_order()
+        payloads: list[dict[str, Any]] = []
+        successful: list[str] = []
+        warnings: list[str] = []
+        for seed in cleaned:
+            try:
+                payloads.append(
+                    self._serpapi_request(
+                        query=seed,
+                        data_type="RELATED_QUERIES",
+                    )
+                )
+                successful.append(seed)
+            except Exception as exc:
+                warnings.append(
+                    f"Google Trends related queries for '{seed}': "
+                    f"{_friendly_failure('SerpApi', exc)}"
+                )
+            time.sleep(0.15)
+        if not payloads:
+            detail = warnings[-1] if warnings else "No related-query data was returned."
+            raise GoogleTrendsError(detail)
+        return {
+            "related": normalize_serpapi_related(
+                payloads,
+                successful,
+                limit=max(1, int(limit)),
+            ),
+            "warnings": warnings,
+            "provider": "SerpApi Google Trends",
+            "requests_used": len(payloads),
+            "request_ceiling": len(cleaned),
+            "market": self.market,
+            "timeframe": self.timeframe,
+        }
 
     def test_connection(self) -> dict[str, Any]:
         result = self.collect(

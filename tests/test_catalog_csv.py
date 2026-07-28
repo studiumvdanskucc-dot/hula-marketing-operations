@@ -126,7 +126,9 @@ def test_weekly_refresh_keeps_the_persisted_csv_catalogue(tmp_path, monkeypatch)
     assert refreshed["meta"]["catalogue_source"] == "csv"
     assert refreshed["meta"]["catalogue_filename"] == "products.csv"
     assert refreshed["products"] == [csv_product]
-    assert refreshed["meta"]["source_status"]["shopify"].startswith("CSV snapshot")
+    assert refreshed["meta"]["source_status"]["shopify"].startswith(
+        "LIVE · CSV snapshot"
+    )
 
 
 def test_repeated_refresh_reuses_fresh_google_cache(tmp_path, monkeypatch) -> None:
@@ -146,14 +148,16 @@ def test_repeated_refresh_reuses_fresh_google_cache(tmp_path, monkeypatch) -> No
             "google_cache": {
                 "collected_at": datetime.now(tz=timezone.utc).isoformat(),
                 "market": "WORLDWIDE",
-                "timeframe": "today 3-m",
+                "context_timeframe": "today 1-m",
+                "discovery_timeframe": "now 7-d",
                 "provider": "SerpApi Google Trends",
-                "series": {
+                "context_series": {
                     "black bags": [
                         {"date": date, "value": value}
                         for date, value in zip(dates, (20, 35, 60))
                     ]
                 },
+                "recent_series": {},
                 "related": [],
             },
             "products": [
@@ -180,12 +184,11 @@ def test_repeated_refresh_reuses_fresh_google_cache(tmp_path, monkeypatch) -> No
         snapshot_path=str(snapshot_path),
         enable_google_related_queries=False,
         google_cache_hours=24,
+        serpapi_api_key="test-key",
     )
 
     refreshed = refresh_snapshot(settings, persist=False, catalog_source="auto")
 
-    assert refreshed["meta"]["source_status"]["google_trends"].startswith(
-        "cached live"
-    )
+    assert refreshed["meta"]["source_status"]["google_trends"].startswith("LIVE")
     assert refreshed["meta"]["google_trends"]["used_cache"] is True
-    assert refreshed["google_cache"]["series"]["black bags"]
+    assert refreshed["google_cache"]["context_series"]["black bags"]

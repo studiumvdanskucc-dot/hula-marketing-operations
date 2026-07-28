@@ -1,5 +1,23 @@
 # Changelog
 
+## Build 2026.07.28.1 — Fresh Sources & Researched Editorial
+
+- Added strict fourteen-day timestamp validation before topic discovery.
+- Added the approved ten-profile Instagram panel with 3×/2× authority tiers
+  and capped Qwen visual reading.
+- Split Google into seven-day rising-query discovery, one-month validation and
+  seven-day acceleration.
+- Excluded invariant Google series from scoring and charts.
+- Moved incomplete rows into a separate watchlist so the decision table has no
+  missing Google values.
+- Updated the exact-name filter: `sandal` and `sandals` are valid; `trousers`,
+  `outfit ideas`, `dress` and `mini` are blocked alone, while `red trousers`
+  and `mini dress` remain valid.
+- Added Supabase aggregate history and grounded Gemini Wednesday blogs.
+- Added Soho and The Hub equally across campaign reasons, objectives, store
+  activations, blog reasons and calls to action.
+- Added source-health diagnostics and regression coverage; 66 offline tests pass.
+
 ## Build 2026.07.26.1 — Commercial Priority Sources
 
 - Rebalanced the external trend score to 35% Google Trends worldwide, 20% open

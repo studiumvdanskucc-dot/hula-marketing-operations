@@ -108,45 +108,65 @@ DEFAULT_EXPERT_ACCOUNTS: tuple[str, ...] = (
 
 # These are the priority sources from the commercial-fashion panel that have
 # stable X accounts and can therefore be collected by the existing governed X
-# connector. Data But Make It Fashion and Tagwalk remain priority editorial
-# sources too, but are reviewed through their official Instagram/site outputs
-# rather than impersonated as X handles.
+# connector. Data But Make It Fashion and Tagwalk are collected by the
+# governed Instagram connector rather than impersonated as X handles.
 DEFAULT_PRIORITY_COMMERCIAL_ACCOUNTS: tuple[str, ...] = (
     "WhoWhatWear",
     "WhoWhatWearUK",
     "Lyst",
 )
 
+DEFAULT_INSTAGRAM_PRIORITY_ACCOUNTS: tuple[str, ...] = (
+    "databutmakeitfashion",
+    "tagwalk",
+    "whowhatwear",
+    "whowhatwear.uk",
+    "lyst",
+)
+
+DEFAULT_INSTAGRAM_SPECIALIST_ACCOUNTS: tuple[str, ...] = (
+    "voguerunway",
+    "wgsn",
+    "trendalytics",
+    "edited_hq",
+    "heuritech",
+)
+
+INSTAGRAM_ACCOUNT_WEIGHTS: dict[str, float] = {
+    **{account: 3.0 for account in DEFAULT_INSTAGRAM_PRIORITY_ACCOUNTS},
+    **{account: 2.0 for account in DEFAULT_INSTAGRAM_SPECIALIST_ACCOUNTS},
+}
+
 PRIORITY_COMMERCIAL_SOURCES: tuple[dict[str, str], ...] = (
     {
         "name": "Data But Make It Fashion",
         "handle": "@databutmakeitfashion",
         "role": "Quantified popularity and trend comparison",
-        "route": "Official Instagram / website review",
+        "route": "Automated public Instagram panel + official website review",
     },
     {
         "name": "Who What Wear",
         "handle": "@whowhatwear",
         "role": "Commercial what-to-buy and what-to-wear interpretation",
-        "route": "Automated X source + official editorial review",
+        "route": "Automated Instagram + X source",
     },
     {
         "name": "Who What Wear UK",
         "handle": "@whowhatwear.uk",
         "role": "European and London-led commercial interpretation",
-        "route": "Automated X source + official editorial review",
+        "route": "Automated Instagram + X source",
     },
     {
         "name": "Lyst",
         "handle": "@lyst",
         "role": "Product and brand shopping demand",
-        "route": "Automated X source + quarterly Lyst Index review",
+        "route": "Automated Instagram + X source + quarterly Lyst Index review",
     },
     {
         "name": "Tagwalk",
         "handle": "@tagwalk",
         "role": "Runway frequency, colours, silhouettes and accessories",
-        "route": "Official Instagram / Tagwalk Trends review",
+        "route": "Automated public Instagram panel + Tagwalk Trends review",
     },
 )
 
