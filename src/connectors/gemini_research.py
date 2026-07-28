@@ -180,7 +180,7 @@ class GeminiResearchConnector:
         self,
         api_key: str,
         *,
-        model: str = "gemini-2.5-flash",
+        model: str = "gemini-3.6-flash",
         api_url: str = "https://generativelanguage.googleapis.com/v1beta",
         timeout_seconds: int = 180,
         grounding_enabled: bool = True,
