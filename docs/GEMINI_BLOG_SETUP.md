@@ -7,7 +7,7 @@ change a trend score.
 
 ```toml
 GEMINI_API_KEY = "your-complete-key"
-GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_MODEL = "gemini-3.6-flash"
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta"
 GEMINI_TIMEOUT_SECONDS = "180"
 GEMINI_GROUNDING_ENABLED = "true"
