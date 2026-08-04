@@ -7,8 +7,6 @@ from typing import Any
 
 from src.analysis.listening import (
     DEFAULT_EXPERT_ACCOUNTS,
-    DEFAULT_INSTAGRAM_PRIORITY_ACCOUNTS,
-    DEFAULT_INSTAGRAM_SPECIALIST_ACCOUNTS,
     DEFAULT_PRIORITY_COMMERCIAL_ACCOUNTS,
     clean_expert_accounts,
 )
@@ -110,24 +108,6 @@ def as_accounts(
     return clean_expert_accounts(accounts) or list(default)
 
 
-def as_instagram_accounts(
-    value: Any,
-    default: tuple[str, ...],
-) -> list[str]:
-    if not value:
-        return list(default)
-    if isinstance(value, list):
-        accounts = value
-    else:
-        accounts = str(value).replace("\n", ",").split(",")
-    cleaned: list[str] = []
-    for account in accounts:
-        handle = str(account).strip().lstrip("@").casefold()
-        if handle and handle not in cleaned:
-            cleaned.append(handle)
-    return cleaned or list(default)
-
-
 @dataclass(frozen=True)
 class Settings:
     app_password: str = ""
@@ -155,16 +135,12 @@ class Settings:
         default_factory=lambda: list(DEFAULT_PRIORITY_COMMERCIAL_ACCOUNTS)
     )
     instagram_enabled: bool = True
-    apify_instagram_actor_id: str = "apify~instagram-post-scraper"
-    instagram_results_per_profile: int = 15
-    instagram_max_total_charge_usd: float = 0.75
-    instagram_visual_max_posts: int = 10
-    instagram_priority_accounts: list[str] = field(
-        default_factory=lambda: list(DEFAULT_INSTAGRAM_PRIORITY_ACCOUNTS)
-    )
-    instagram_specialist_accounts: list[str] = field(
-        default_factory=lambda: list(DEFAULT_INSTAGRAM_SPECIALIST_ACCOUNTS)
-    )
+    apify_instagram_actor_id: str = "apify~instagram-hashtag-analytics-scraper"
+    instagram_hashtag_max_terms: int = 8
+    instagram_max_total_charge_usd: float = 0.25
+    commercial_sources_enabled: bool = True
+    commercial_timeout_seconds: int = 15
+    commercial_max_workers: int = 6
     openrouter_api_key: str = ""
     openrouter_api_url: str = "https://openrouter.ai/api/v1/chat/completions"
     openrouter_model: str = "qwen/qwen3-vl-32b-instruct"
@@ -195,7 +171,7 @@ class Settings:
     supabase_snapshot_table: str = "hula_trend_snapshots"
     supabase_blog_table: str = "hula_blog_drafts"
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-2.5-flash"
+    gemini_model: str = "gemini-3.6-flash"
     gemini_api_url: str = "https://generativelanguage.googleapis.com/v1beta"
     gemini_timeout_seconds: int = 180
     gemini_grounding_enabled: bool = True
@@ -218,23 +194,7 @@ class Settings:
             self.instagram_enabled
             and self.apify_token
             and self.apify_instagram_actor_id
-            and self.instagram_accounts
         )
-
-    @property
-    def instagram_accounts(self) -> list[str]:
-        return list(
-            dict.fromkeys(
-                [*self.instagram_priority_accounts, *self.instagram_specialist_accounts]
-            )
-        )
-
-    @property
-    def instagram_account_weights(self) -> dict[str, float]:
-        return {
-            **{account.casefold(): 3.0 for account in self.instagram_priority_accounts},
-            **{account.casefold(): 2.0 for account in self.instagram_specialist_accounts},
-        }
 
     @property
     def topic_plan_enabled(self) -> bool:
@@ -294,24 +254,25 @@ def load_settings() -> Settings:
         ),
         instagram_enabled=as_bool(setting("INSTAGRAM_ENABLED", True), True),
         apify_instagram_actor_id=str(
-            setting("APIFY_INSTAGRAM_ACTOR_ID", "apify~instagram-post-scraper")
+            setting(
+                "APIFY_INSTAGRAM_ACTOR_ID",
+                "apify~instagram-hashtag-analytics-scraper",
+            )
         ),
-        instagram_results_per_profile=as_int(
-            setting("INSTAGRAM_RESULTS_PER_PROFILE", 15), 15
+        instagram_hashtag_max_terms=as_int(
+            setting("INSTAGRAM_HASHTAG_MAX_TERMS", 8), 8
         ),
         instagram_max_total_charge_usd=as_float(
-            setting("INSTAGRAM_MAX_TOTAL_CHARGE_USD", 0.75), 0.75
+            setting("INSTAGRAM_MAX_TOTAL_CHARGE_USD", 0.25), 0.25
         ),
-        instagram_visual_max_posts=as_int(
-            setting("INSTAGRAM_VISUAL_MAX_POSTS", 10), 10
+        commercial_sources_enabled=as_bool(
+            setting("COMMERCIAL_SOURCES_ENABLED", True), True
         ),
-        instagram_priority_accounts=as_instagram_accounts(
-            setting("INSTAGRAM_PRIORITY_ACCOUNTS", ""),
-            DEFAULT_INSTAGRAM_PRIORITY_ACCOUNTS,
+        commercial_timeout_seconds=as_int(
+            setting("COMMERCIAL_TIMEOUT_SECONDS", 15), 15
         ),
-        instagram_specialist_accounts=as_instagram_accounts(
-            setting("INSTAGRAM_SPECIALIST_ACCOUNTS", ""),
-            DEFAULT_INSTAGRAM_SPECIALIST_ACCOUNTS,
+        commercial_max_workers=as_int(
+            setting("COMMERCIAL_MAX_WORKERS", 6), 6
         ),
         openrouter_api_key=str(setting("OPENROUTER_API_KEY", "")),
         openrouter_api_url=str(
@@ -378,7 +339,7 @@ def load_settings() -> Settings:
             setting("SUPABASE_BLOG_TABLE", "hula_blog_drafts")
         ),
         gemini_api_key=str(setting("GEMINI_API_KEY", "")),
-        gemini_model=str(setting("GEMINI_MODEL", "gemini-2.5-flash")),
+        gemini_model=str(setting("GEMINI_MODEL", "gemini-3.6-flash")),
         gemini_api_url=str(
             setting(
                 "GEMINI_API_URL",

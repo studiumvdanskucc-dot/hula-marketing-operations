@@ -87,6 +87,57 @@ def test_cross_source_agreement_increases_confidence() -> None:
     assert merged[0]["score"] >= 70
 
 
+def test_reports_and_hashtag_metadata_merge_as_separate_sources() -> None:
+    google = [
+        {
+            "id": "ballet-flats",
+            "name": "Ballet Flats",
+            "google_score": 80,
+            "search_momentum": 30,
+            "series": [],
+            "display_series": [],
+            "aliases": ["ballet flats"],
+        }
+    ]
+    commercial = [
+        {
+            "id": "ballet-flats",
+            "name": "Ballet Flats",
+            "commercial_score": 76,
+            "publisher_count": 2,
+            "article_count": 3,
+            "commercial_priority_mentions": 1,
+            "commercial_evidence": [{"url": "https://example.com"}],
+            "aliases": ["studded ballet flats"],
+        }
+    ]
+    instagram = [
+        {
+            "id": "ballet-flats",
+            "name": "Ballet Flats",
+            "instagram_score": 65,
+            "hashtag": "balletflats",
+            "posts_count": 120000,
+            "posts_per_day": 45,
+        }
+    ]
+    merged = merge_trend_signals(
+        google,
+        [],
+        commercial_rows=commercial,
+        instagram_rows=instagram,
+    )
+    row = merged[0]
+    assert row["confidence"] == "High"
+    assert row["sources"] == [
+        "Google Trends",
+        "Commercial reports",
+        "Instagram hashtag signal",
+    ]
+    assert row["publisher_count"] == 2
+    assert row["instagram_hashtag"] == "balletflats"
+
+
 def test_semantic_aliases_group_ballet_pumps_and_flats() -> None:
     clusters = build_topic_clusters(
         [
@@ -197,18 +248,27 @@ def test_generic_category_filter_keeps_specific_combinations() -> None:
     for broad in (
         "bag",
         "bags",
+        "pants",
+        "skirt",
+        "flats",
+        "polka",
         "trousers",
         "garments",
         "mini",
         "dress",
         "outfit ideas",
         "ebay",
+        "pretty dress",
+        "elegant shoes",
+        "new skirt",
+        "stylish pants",
     ):
         assert generic_trend_reason(broad)
 
     for specific in (
-        "sandal",
         "sandals",
+        "jeans",
+        "loafers",
         "black bags",
         "red trousers",
         "mini bags",
@@ -216,8 +276,15 @@ def test_generic_category_filter_keeps_specific_combinations() -> None:
         "designer bags",
         "raffia bags",
         "east west bags",
+        "pencil skirt",
+        "ballet flats",
+        "polka dots",
+        "puff sleeves",
     ):
         assert generic_trend_reason(specific) == ""
+
+    assert generic_trend_reason("suede")
+    assert generic_trend_reason("suede", trusted_source=True) == ""
 
 
 def test_non_fashion_topics_are_rejected_but_jane_is_kept_as_mary_janes() -> None:

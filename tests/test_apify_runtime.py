@@ -118,6 +118,7 @@ def test_x_plan_stops_after_first_capacity_error(monkeypatch) -> None:
 def test_google_cache_is_scoped_to_market_and_timeframe() -> None:
     snapshot = {
         "google_cache": {
+            "schema_version": "2.0",
             "collected_at": datetime.now(tz=timezone.utc).isoformat(),
             "market": "HK",
             "context_timeframe": "today 1-m",

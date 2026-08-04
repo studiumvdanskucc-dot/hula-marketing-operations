@@ -15,6 +15,69 @@ class GeminiResearchError(RuntimeError):
     pass
 
 
+_TEST_RESPONSE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {"ok": {"type": "boolean"}},
+    "required": ["ok"],
+    "additionalProperties": False,
+}
+
+
+_BLOG_RESPONSE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "title": {"type": "string"},
+        "dek": {"type": "string"},
+        "body_markdown": {"type": "string"},
+        "shopify_excerpt": {"type": "string"},
+        "seo_title": {"type": "string"},
+        "seo_description": {"type": "string"},
+        "claims": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "claim": {"type": "string"},
+                    "status": {
+                        "type": "string",
+                        "enum": [
+                            "confirmed",
+                            "similar_design_only",
+                            "uncertain",
+                            "not_found",
+                        ],
+                    },
+                    "product_id": {"type": "string"},
+                    "evidence_note": {"type": "string"},
+                },
+                "required": [
+                    "claim",
+                    "status",
+                    "product_id",
+                    "evidence_note",
+                ],
+                "additionalProperties": False,
+            },
+        },
+        "editorial_notes": {
+            "type": "array",
+            "items": {"type": "string"},
+        },
+    },
+    "required": [
+        "title",
+        "dek",
+        "body_markdown",
+        "shopify_excerpt",
+        "seo_title",
+        "seo_description",
+        "claims",
+        "editorial_notes",
+    ],
+    "additionalProperties": False,
+}
+
+
 def _session() -> requests.Session:
     session = requests.Session()
     retry = Retry(
@@ -51,10 +114,44 @@ def extract_json_object(text: str) -> dict[str, Any]:
     raise GeminiResearchError("Gemini did not return a valid JSON object.")
 
 
+def _response_diagnostic(payload: dict[str, Any]) -> str:
+    candidates = payload.get("candidates") or []
+    candidate = candidates[0] if candidates and isinstance(candidates[0], dict) else {}
+    prompt_feedback = payload.get("promptFeedback") or {}
+    usage = payload.get("usageMetadata") or {}
+    details: list[str] = []
+    finish_reason = str(
+        candidate.get("finishReason") or candidate.get("finish_reason") or ""
+    ).strip()
+    block_reason = str(
+        prompt_feedback.get("blockReason")
+        or prompt_feedback.get("block_reason")
+        or ""
+    ).strip()
+    if finish_reason:
+        details.append(f"finish reason: {finish_reason}")
+    if block_reason:
+        details.append(f"prompt block: {block_reason}")
+    token_fields = (
+        ("output tokens", "candidatesTokenCount"),
+        ("thought tokens", "thoughtsTokenCount"),
+        ("total tokens", "totalTokenCount"),
+    )
+    for label, key in token_fields:
+        value = usage.get(key)
+        if value is not None:
+            details.append(f"{label}: {value}")
+    return "; ".join(details)
+
+
 def _response_text(payload: dict[str, Any]) -> str:
     candidates = payload.get("candidates") or []
     if not candidates:
-        raise GeminiResearchError("Gemini returned no candidate.")
+        diagnostic = _response_diagnostic(payload)
+        raise GeminiResearchError(
+            "Gemini returned no candidate"
+            + (f" ({diagnostic})." if diagnostic else ".")
+        )
     parts = ((candidates[0].get("content") or {}).get("parts") or [])
     text = "\n".join(
         str(part.get("text") or "")
@@ -62,8 +159,36 @@ def _response_text(payload: dict[str, Any]) -> str:
         if isinstance(part, dict) and part.get("text")
     ).strip()
     if not text:
-        raise GeminiResearchError("Gemini returned an empty response.")
+        diagnostic = _response_diagnostic(payload)
+        raise GeminiResearchError(
+            "Gemini returned an empty response"
+            + (f" ({diagnostic})." if diagnostic else ".")
+        )
     return text
+
+
+def _empty_response_can_retry(payload: dict[str, Any]) -> bool:
+    candidates = payload.get("candidates") or []
+    if not candidates or not isinstance(candidates[0], dict):
+        return False
+    candidate = candidates[0]
+    parts = ((candidate.get("content") or {}).get("parts") or [])
+    if any(
+        isinstance(part, dict) and str(part.get("text") or "").strip()
+        for part in parts
+    ):
+        return False
+    finish_reason = str(
+        candidate.get("finishReason") or candidate.get("finish_reason") or ""
+    ).upper()
+    return finish_reason not in {
+        "SAFETY",
+        "BLOCKLIST",
+        "PROHIBITED_CONTENT",
+        "SPII",
+        "IMAGE_SAFETY",
+        "RECITATION",
+    }
 
 
 def grounding_sources(payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -186,11 +311,15 @@ class GeminiResearchConnector:
         grounding_enabled: bool = True,
     ) -> None:
         self.api_key = str(api_key or "")
-        self.model = str(model or "gemini-2.5-flash")
+        self.model = str(model or "gemini-3.6-flash")
         self.api_url = str(api_url or "").rstrip("/")
         self.timeout_seconds = max(30, int(timeout_seconds))
         self.grounding_enabled = bool(grounding_enabled)
         self.session = _session()
+
+    @property
+    def is_gemini_3(self) -> bool:
+        return self.model.removeprefix("models/").startswith("gemini-3")
 
     @property
     def endpoint(self) -> str:
@@ -211,14 +340,26 @@ class GeminiResearchConnector:
         *,
         grounded: bool,
         max_output_tokens: int,
-        temperature: float,
+        thinking_level: str | None = None,
+        response_schema: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        generation_config: dict[str, Any] = {
+            "maxOutputTokens": max_output_tokens,
+        }
+        if thinking_level and self.is_gemini_3:
+            generation_config["thinkingConfig"] = {
+                "thinkingLevel": thinking_level,
+            }
+        if response_schema and self.is_gemini_3:
+            generation_config["responseFormat"] = {
+                "text": {
+                    "mimeType": "application/json",
+                    "schema": response_schema,
+                }
+            }
         body: dict[str, Any] = {
             "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-            "generationConfig": {
-                "temperature": temperature,
-                "maxOutputTokens": max_output_tokens,
-            },
+            "generationConfig": generation_config,
         }
         if grounded:
             body["tools"] = [{"google_search": {}}]
@@ -264,15 +405,45 @@ class GeminiResearchConnector:
             raise GeminiResearchError("Gemini returned an invalid response object.")
         return payload
 
+    def _generate_text(
+        self,
+        prompt: str,
+        *,
+        grounded: bool,
+        max_output_tokens: int,
+        thinking_level: str | None,
+        response_schema: dict[str, Any] | None,
+    ) -> tuple[dict[str, Any], str]:
+        """Generate visible text, retrying one transient HTTP-200 blank response."""
+
+        last_error: GeminiResearchError | None = None
+        for attempt in range(2):
+            payload = self._generate(
+                prompt,
+                grounded=grounded,
+                max_output_tokens=max_output_tokens,
+                thinking_level=thinking_level,
+                response_schema=response_schema,
+            )
+            try:
+                return payload, _response_text(payload)
+            except GeminiResearchError as exc:
+                last_error = exc
+                if attempt == 0 and _empty_response_can_retry(payload):
+                    continue
+                raise
+        raise last_error or GeminiResearchError("Gemini returned no usable text.")
+
     def test_connection(self) -> dict[str, Any]:
-        payload = self._generate(
+        payload, text = self._generate_text(
             'Return exactly this JSON object and nothing else: {"ok":true}',
             grounded=False,
-            max_output_tokens=50,
-            temperature=0,
+            max_output_tokens=1024,
+            thinking_level="minimal",
+            response_schema=_TEST_RESPONSE_SCHEMA,
         )
         result = attach_claim_sources(
-            extract_json_object(_response_text(payload)),
+            extract_json_object(text),
             payload,
         )
         if result.get("ok") is not True:
@@ -353,13 +524,14 @@ Return strict JSON and no markdown fence, with this exact shape:
 }}
 """.strip()
         grounded = self.grounding_enabled
-        payload = self._generate(
+        payload, text = self._generate_text(
             prompt,
             grounded=grounded,
-            max_output_tokens=7000,
-            temperature=0.25,
+            max_output_tokens=12000,
+            thinking_level="low",
+            response_schema=_BLOG_RESPONSE_SCHEMA,
         )
-        result = extract_json_object(_response_text(payload))
+        result = attach_claim_sources(extract_json_object(text), payload)
         result.update(
             {
                 "generated_at": datetime.now(tz=timezone.utc).isoformat(),

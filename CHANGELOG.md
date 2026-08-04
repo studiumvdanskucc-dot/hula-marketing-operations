@@ -1,5 +1,34 @@
 # Changelog
 
+## Build 2026.08.03.1 — Publisher Evidence & Trustworthy Charts
+
+- Replaced Instagram profile/post scraping with aggregate hashtag analytics for
+  already-qualified trends. Top/latest post collection is explicitly disabled.
+- Added direct public-page evidence from Tagwalk, Trendalytics, Heuritech, Who
+  What Wear, Who What Wear UK, Data But Make It Fashion, Vogue, ELLE and Lyst.
+- Restricted commercial evidence to explicit titles, trend-labelled headings,
+  dates and URLs; ordinary body text never creates a trend.
+- Added the source-aware specificity gate: `pants`, `skirt`, `flats` and
+  `polka` fail while specific combinations and the approved `jeans`, `loafers`
+  and `sandals` exceptions pass.
+- Separated Google ranking values from the displayed raw 0–100 index, added
+  resolution/plateau/spike checks and invalidated legacy chart caches.
+- Replaced the large priority bar chart with compact decision rows and exposed
+  exact publisher evidence in each trend deep dive.
+- Added commercial-source, hashtag-metadata and Google-display regressions;
+  80 offline tests now cover the build after removing the retired profile-post
+  connector and its obsolete tests.
+
+## Build 2026.07.28.2 — Gemini 3.6 Compatibility
+
+- Replaced the retired Gemini 2.5 default with stable `gemini-3.6-flash`.
+- Increased the diagnostic output allowance and uses minimal thinking so the
+  connection test cannot spend its full allowance before returning JSON.
+- Removed sampling overrides that Google no longer recommends for Gemini 3.
+- Added Gemini 3 structured JSON output for both diagnostics and grounded blogs.
+- Retries one transient blank HTTP-200 response and exposes the finish reason
+  and token counts if Gemini remains blank.
+
 ## Build 2026.07.28.1 — Fresh Sources & Researched Editorial
 
 - Added strict fourteen-day timestamp validation before topic discovery.

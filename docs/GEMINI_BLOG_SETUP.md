@@ -16,10 +16,21 @@ GEMINI_GROUNDING_ENABLED = "true"
 Add the same API key to Streamlit Secrets and GitHub Actions Secrets. Use
 **Data & Setup → Test Gemini research** before the first scheduled refresh.
 
+The connection test uses ordinary Gemini generation and works on the free tier.
+The publishable researched-blog workflow uses live Google Search grounding,
+which Google currently makes available only to billing-enabled projects. The
+first 5,000 Gemini 3 grounded prompts per month have no separate Search
+surcharge; normal model-token charges still apply.
+
 ## Editorial safeguards
 
 - The draft targets 700–1,000 words.
 - Google Search grounding is enabled through the Gemini API.
+- Gemini 3.6 uses low thinking for long blog drafts and minimal thinking for
+  connection tests, leaving enough output capacity for the visible JSON.
+- One transient HTTP-200 response with no visible text is retried automatically.
+- If both responses are blank, the error reports Gemini's finish reason and
+  token usage instead of hiding the cause.
 - Exact-product celebrity/runway claims require credible supporting evidence.
 - Similar designs are labelled `similar_design_only` and stay outside factual
   publishable copy.

@@ -1,6 +1,6 @@
 # Google Trends through SerpApi
 
-Build `2026.07.28.1` uses worldwide Google Trends through SerpApi.
+Build `2026.08.03.1` uses worldwide Google Trends through SerpApi.
 SerpApi makes the Google-facing request and returns structured Trends data, so
 the Streamlit app does not launch another Actor and does not connect to
 `trends.google.com` directly.
@@ -81,8 +81,10 @@ message must say:
 
 The full refresh status and safe diagnostic report also record the provider,
 market, term count, request count and cache age without including the API key.
-Invariant or malformed series are counted in the diagnostic and excluded from
-both scoring and charts.
+The plotted line is always Google's original 0–100 index. Anchor-calibrated
+values are retained only for internal cross-query ranking. Low-resolution,
+plateau-heavy, isolated-spike, out-of-range and legacy calibrated-only series
+are counted in diagnostics and withheld from charts.
 
 ## Common errors
 

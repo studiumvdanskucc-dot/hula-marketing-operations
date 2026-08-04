@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import random
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -19,6 +20,8 @@ def _series(base: float, lift: float, seed: int) -> list[dict[str, Any]]:
             {
                 "date": (today - timedelta(days=(12 - week) * 7)).isoformat(),
                 "value": max(0, min(100, round(value))),
+                "raw_value": max(0, min(100, round(value))),
+                "display_value": max(0, min(100, round(value))),
             }
         )
     return points
@@ -35,6 +38,7 @@ def demo_trends() -> list[dict[str, Any]]:
     ]
     output = []
     for trend_id, name, category, score, google, x_score, search_growth, social_growth, mentions, stage, seed in rows:
+        series = _series(28 + seed * 2, 28 + seed * 1.5, seed)
         output.append(
             {
                 "id": trend_id,
@@ -56,7 +60,15 @@ def demo_trends() -> list[dict[str, Any]]:
                 "engagement_per_1000_views": round(18 + seed * 1.7, 1),
                 "source_breadth": 4,
                 "expert_score": max(40, x_score - 8),
+                "commercial_score": max(40, x_score - 8),
                 "commercial_source_score": max(40, x_score - 8),
+                "instagram_score": max(35, x_score - 18),
+                "instagram_hashtag": re.sub(r"[^a-z0-9]", "", name.casefold()),
+                "instagram_posts_count": 10000 * (8 - seed),
+                "instagram_posts_per_day": 30 * (8 - seed),
+                "publisher_count": 2 + seed % 3,
+                "commercial_article_count": 3 + seed,
+                "commercial_evidence": [],
                 "expert_mentions": 3 + seed,
                 "expert_authors": 2 + seed // 2,
                 "commercial_priority_mentions": 2 + seed // 2,
@@ -67,7 +79,7 @@ def demo_trends() -> list[dict[str, Any]]:
                 "evidence_quality": 91.0 - seed,
                 "novelty_score": max(0, 100 - seed * 12),
                 "confidence": "High",
-                "sources": ["Google Trends", "Open X topics", "Priority commercial panel"],
+                "sources": ["Google Trends", "Open X topics", "Commercial reports"],
                 "stage": stage,
                 "why_now": (
                     f"Demo signal: search momentum is {search_growth:+.0f}% and X conversation "
@@ -79,7 +91,13 @@ def demo_trends() -> list[dict[str, Any]]:
                     f"Three ways to style {name.lower()} without buying new",
                     f"Then vs now: the designer archive view of {name.lower()}",
                 ],
-                "series": _series(28 + seed * 2, 28 + seed * 1.5, seed),
+                "series": series,
+                "display_series": [
+                    {"date": point["date"], "value": point["raw_value"], "raw_value": point["raw_value"]}
+                    for point in series
+                ],
+                "chart_ready": True,
+                "decision_ready": True,
             }
         )
     return output
@@ -139,6 +157,8 @@ def demo_snapshot() -> dict[str, Any]:
             "source_status": {
                 "google_trends": "demo",
                 "x_apify": "demo",
+                "commercial_websites": "demo",
+                "instagram_hashtags": "demo",
                 "shopify": "demo",
                 "openrouter": "not used",
             },
@@ -158,7 +178,9 @@ def demo_snapshot() -> dict[str, Any]:
             "warnings": [
                 "Demo data is illustrative. Add credentials and select Refresh data for live evidence."
             ],
-            "methodology_version": "0.2",
+            "methodology_version": "0.6",
+            "quality_filter_version": "4.0",
+            "google_display_schema_version": "2.0",
         },
         "trends": trends,
         "products": products,

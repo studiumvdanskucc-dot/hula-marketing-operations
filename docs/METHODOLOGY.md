@@ -9,7 +9,7 @@ forecast.
 
 ## Freshness contract
 
-X and Instagram records are eligible only when they have:
+X records are eligible only when they have:
 
 - a valid publication timestamp inside the latest fourteen days;
 - usable text;
@@ -24,9 +24,9 @@ the current time.
 ## X discovery
 
 Five broad topic families discover product, material, silhouette, aesthetic,
-styling and resale language. A separate commercial panel confirms evidence.
-Every search is run for the current and previous windows with Latest ordering,
-no replies and no reposts.
+styling and resale language. Every search is run for the current and previous
+windows with Latest ordering, no replies and no reposts. Publisher accounts on
+X remain supporting context; they no longer supply the commercial score.
 
 The open-X component combines:
 
@@ -43,16 +43,29 @@ The open-X component combines:
 An evidence-quality multiplier penalises promotional content, cross-query
 duplicates, low author coverage and excessive concentration in one author.
 
-## Instagram commercial and visual evidence
+## Commercial website and report evidence
 
-The approved priority panel—Data But Make It Fashion, Tagwalk, Who What Wear,
-Who What Wear UK and Lyst—receives 3× commercial evidence weight. Vogue Runway,
-WGSN, Trendalytics, EDITED and Heuritech receive 2×.
+The commercial collector reads public pages from Tagwalk, Trendalytics,
+Heuritech, Who What Wear, Who What Wear UK, Data But Make It Fashion, Vogue,
+ELLE and the Lyst Index. A source counts only when an article/report title,
+trend-labelled heading or Tagwalk taxonomy explicitly names the trend.
+Ordinary body text is excluded.
 
-Instagram captions contribute to the commercial-source component. A capped set
-of public post images may be read by Qwen for concrete product, silhouette,
-material, colour and styling labels, contributing to the visual component.
-Publisher breadth is deduplicated across Instagram and X.
+The component combines unique-publisher breadth, authority weight and recency.
+Tagwalk, Trendalytics, Heuritech, Data But Make It Fashion and Lyst receive the
+higher authority weight. A publisher failure is isolated and never converted
+to a zero for the other sources.
+
+## Instagram aggregate metadata
+
+Instagram is queried only after a trend has been qualified elsewhere. The
+aggregate hashtag Actor returns lifetime public uses, posts per day and related
+hashtag counts. Top/latest post collection is disabled, so no captions,
+accounts or images enter the pipeline.
+
+The score is a comparison among the hashtags queried during that refresh.
+Posts per day leads when available; lifetime counts are log-scaled. The result
+is directional and non-causal.
 
 ## Topic grouping
 
@@ -61,10 +74,12 @@ hashtags and a maintained alias ontology. Qwen may group aggregated aliases,
 but it cannot create numerical evidence. The deterministic local method
 validates the output and is the fallback.
 
-The exact-name filter removes vague labels before scoring. `sandal` and
-`sandals` remain valid. `trousers`, `outfit ideas`, `dress` and `mini` are
-removed alone, while `red trousers`, `mini dress` and other specific
-combinations remain eligible.
+The source-aware specificity gate rejects category-only labels before scoring.
+`pants`, `skirt`, `flats` and `polka` fail; `capri pants`, `pencil skirt`,
+`ballet flats` and `polka dots` pass. `jeans`, `loafers` and `sandals` are the
+approved standalone exceptions. A trusted report may introduce a named colour,
+material or aesthetic such as `burgundy`, `suede` or `boho chic`; raw social
+frequency cannot promote those one-word labels by itself.
 
 ## Google discovery and validation
 
@@ -76,8 +91,15 @@ Google uses SerpApi's structured Trends endpoint:
 
 Worldwide requests omit `geo`; the literal value `WORLDWIDE` is never sent as a
 country code. Timeline values must carry their query names and are never
-assigned by array position. An invariant series is considered an unusable
-provider/calibration result and is excluded from scoring and charts.
+assigned by array position.
+
+Google normalises every multi-query comparison independently. The app repeats
+an anchor term and may use an anchor-calibrated value internally for ranking
+across batches. That calculated value is never plotted. Charts use only
+Google's original 0–100 index with light rolling smoothing. Timelines with too
+few distinct values, excessive plateaus, isolated spikes, out-of-range values
+or no preserved raw index are withheld with an “Insufficient Google
+resolution” explanation.
 
 The Google score combines current relative interest, baseline momentum and
 time-series slope. Google values are relative, not absolute search volume.
@@ -91,19 +113,20 @@ evidence cannot make a trend decision-ready.
 ```text
 35% Google Trends worldwide
 20% open X topic momentum
-35% approved commercial-source confirmation
-10% approved Instagram visual validation
+35% approved website/report confirmation
+10% aggregate Instagram hashtag comparison
 ```
 
 Missing components are excluded and the available weights are renormalised;
 missing evidence is not converted to zero. A row enters the decision list only
-when fresh Google and at least one open, commercial or visual component agree.
+when fresh Google and at least one X, commercial-report or hashtag component
+agree.
 Incomplete rows remain in a separate watchlist.
 
-Confidence is **High** when Google, open X and commercial/visual evidence agree,
-or when Google agrees with a priority commercial source. Google plus one other
-eligible source is **Medium**. One-source evidence is **Exploratory** and
-cannot receive an action recommendation.
+Confidence is **High** when Google and commercial reports agree alongside X or
+Instagram, or when Google agrees with at least two approved publishers. Google
+plus one other eligible source is **Medium**. One-source evidence is
+**Exploratory** and cannot receive an action recommendation.
 
 ## Catalogue matching
 
@@ -124,9 +147,11 @@ excluded.
 
 ## Storage and editorial controls
 
-Supabase stores aggregate weekly snapshots and blog drafts. Raw X/Instagram
-posts, raw profile identifiers, customers, orders and payment data are not
-stored.
+Supabase stores aggregate weekly snapshots and blog drafts. Raw X posts are not
+stored. Commercial evidence contains only public titles, explicit labels,
+dates and URLs. Instagram stores only aggregate hashtag counts; captions,
+accounts and images are never collected. Customers, orders and payment data
+are not accessed.
 
 Gemini runs only after deterministic ranking and product matching. A named
 person may be described as wearing a selected product only when a credible

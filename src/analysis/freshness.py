@@ -177,13 +177,65 @@ def validate_series(
 
     cleaned = [by_date[key] for key in sorted(by_date)]
     values = [float(point["value"]) for point in cleaned]
+    display_values = [
+        float(point.get("raw_value", point["value"])) for point in cleaned
+    ]
+    for point, display_value in zip(cleaned, display_values):
+        point["display_value"] = round(display_value, 4)
+
     distinct_values = len({round(value, 6) for value in values})
+    distinct_display_values = len(
+        {round(value, 6) for value in display_values}
+    )
     flat = len(values) >= min_score_points and distinct_values < 2
+    display_out_of_range = any(
+        value < 0 or value > 100 for value in display_values
+    )
+
+    longest_plateau = 0
+    current_plateau = 0
+    previous: float | None = None
+    for value in display_values:
+        rounded = round(value, 6)
+        if previous is not None and rounded == previous:
+            current_plateau += 1
+        else:
+            current_plateau = 1
+            previous = rounded
+        longest_plateau = max(longest_plateau, current_plateau)
+    plateau_ratio = (
+        longest_plateau / len(display_values) if display_values else 0.0
+    )
+    counts = Counter(round(value, 6) for value in display_values)
+    dominant_ratio = (
+        max(counts.values()) / len(display_values) if display_values else 0.0
+    )
+    excessive_plateau = bool(
+        len(display_values) >= 6
+        and (plateau_ratio >= 0.60 or dominant_ratio >= 0.72)
+    )
+
+    isolated_spikes = 0
+    if len(display_values) >= 5:
+        for index in range(1, len(display_values) - 1):
+            value = display_values[index]
+            neighbours = (
+                display_values[index - 1] + display_values[index + 1]
+            ) / 2
+            if value >= 60 and value >= 3 * max(1.0, neighbours):
+                isolated_spikes += 1
     # An invariant provider series can reflect an anchor/calibration failure.
     # It is neither scored nor charted, so a fabricated-looking horizontal
     # line cannot become a business recommendation.
     score_ready = len(values) >= min_score_points and not flat
-    chart_ready = len(values) >= min_chart_points and not flat
+    chart_ready = bool(
+        len(values) >= min_chart_points
+        and not flat
+        and distinct_display_values >= 3
+        and not display_out_of_range
+        and not excessive_plateau
+        and not isolated_spikes
+    )
     issue = ""
     if len(values) < min_score_points:
         issue = "Too few valid timeline points"
@@ -192,18 +244,64 @@ def validate_series(
             "The provider returned an invariant series; it is excluded from "
             "scoring and charts"
         )
+    elif display_out_of_range:
+        issue = (
+            "The stored display timeline is not a raw Google 0–100 index; "
+            "refresh the term before charting it"
+        )
+    elif distinct_display_values < 3:
+        issue = "Insufficient Google resolution for a trustworthy movement chart"
+    elif excessive_plateau:
+        issue = "Insufficient Google resolution: the timeline contains excessive plateaus"
+    elif isolated_spikes:
+        issue = "The timeline contains an isolated spike and is withheld from charts"
 
     return cleaned, {
         "points": len(cleaned),
         "rejected_points": rejected,
         "distinct_values": distinct_values,
+        "distinct_display_values": distinct_display_values,
         "flat": flat,
+        "display_out_of_range": display_out_of_range,
+        "plateau_ratio": round(plateau_ratio, 4),
+        "dominant_value_ratio": round(dominant_ratio, 4),
+        "excessive_plateau": excessive_plateau,
+        "isolated_spikes": isolated_spikes,
         "score_ready": score_ready,
         "chart_ready": chart_ready,
         "issue": issue,
         "oldest_date": cleaned[0]["date"] if cleaned else None,
         "newest_date": cleaned[-1]["date"] if cleaned else None,
     }
+
+
+def google_display_series(
+    points: Iterable[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Return a display-only raw Google index with light noise reduction.
+
+    Anchor-calibrated values remain available for cross-query ranking, but are
+    never drawn. Daily timelines use a seven-point rolling mean; shorter or
+    lower-frequency timelines use a three-point mean when enough data exists.
+    """
+
+    cleaned, quality = validate_series(points)
+    if not quality["chart_ready"]:
+        return [], quality
+    window = 7 if len(cleaned) >= 14 else 3 if len(cleaned) >= 8 else 1
+    output: list[dict[str, Any]] = []
+    display_values = [float(point["display_value"]) for point in cleaned]
+    for index, point in enumerate(cleaned):
+        start = max(0, index - window + 1)
+        smoothed = sum(display_values[start : index + 1]) / (index - start + 1)
+        output.append(
+            {
+                "date": point["date"],
+                "value": round(max(0.0, min(100.0, smoothed)), 2),
+                "raw_value": round(display_values[index], 2),
+            }
+        )
+    return output, quality
 
 
 def source_freshness_state(

@@ -11,7 +11,7 @@ import numpy as np
 from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
-from src.analysis.freshness import parse_utc, validate_series
+from src.analysis.freshness import google_display_series, parse_utc, validate_series
 
 
 CANONICAL_PHRASES = {
@@ -119,15 +119,50 @@ EXACT_TREND_BLOCKLIST = {
     "patterns", "pinterest", "platform", "print", "prints", "shopify", "shoe",
     "shoes", "silhouette", "silhouettes", "style", "styles", "tiktok", "trend",
     "trends", "twitter", "viral", "wear", "x",
-    # Explicit July 28 refinements: combinations remain valid.
-    "dress", "dresses", "mini", "outfit idea", "outfit ideas", "trouser", "trousers",
+    # Department/category nouns are never actionable by themselves. Specific
+    # combinations such as pencil skirt, ballet flats and capri pants remain valid.
+    "dress", "dresses", "flat", "flats", "mini", "outfit idea", "outfit ideas",
+    "pant", "pants", "polka", "skirt", "skirts", "trouser", "trousers",
+}
+
+# User-approved exceptions that can represent a recognisable movement even
+# without another descriptor. Singular department nouns are deliberately not
+# inferred from these exceptions.
+STANDALONE_TREND_ALLOWLIST = {"jeans", "loafers", "sandals"}
+
+# Phrases that remain commercially meaningful despite using an otherwise
+# generic modifier. Keep this list deliberately small and auditable.
+SPECIFIC_PHRASE_ALLOWLIST = {"designer bags"}
+
+# A trusted publisher/report may explicitly introduce a colour, material or
+# aesthetic as a named trend. Raw social phrase extraction cannot do so.
+TRUSTED_STANDALONE_ALLOWLIST = {
+    "beige", "black", "blue", "brown", "burgundy", "camel", "check",
+    "crochet", "denim", "feather", "floral", "fringe", "fringed", "fringes",
+    "frill", "fur", "gray", "green", "grey", "khaki", "lace", "ladylike",
+    "leather", "lingerie", "metallic", "minimal", "orange", "pink", "preppy",
+    "purple", "raffia", "red", "romantic", "satin", "sheer", "silk", "stripes",
+    "suede", "tailoring", "tweed", "utility", "white", "yellow",
 }
 
 GENERIC_FASHION_FILLERS = {
-    "all", "best", "designer", "designers", "fashion", "fashionable", "female",
-    "idea", "ideas", "latest", "look", "looks", "luxury", "male", "men", "mens",
-    "must", "new", "season", "style", "styles", "trend", "trends", "trending",
-    "wear", "woman", "women", "womens",
+    "a", "all", "an", "best", "designer", "designers", "fashion", "fashionable",
+    "female", "for", "idea", "ideas", "latest", "look", "looks", "luxury",
+    "male", "men", "mens", "must", "new", "of", "s", "season", "style",
+    "styles", "the", "trend", "trends", "trending", "wear", "woman", "women",
+    "womens",
+}
+
+# These words make a headline sound editorial but do not make a category more
+# actionable. For example, ``pretty dress`` and ``new skirt`` must not evade
+# the exact-name blocklist merely by adding a vague adjective.
+NON_SPECIFIC_DESCRIPTOR_TOKENS = {
+    "beautiful", "best", "big", "biggest", "comfortable", "cool", "current",
+    "dated", "elegant", "essential", "everyday", "favourite", "favorite",
+    "fresh", "good", "great", "hot", "key", "large", "latest", "long",
+    "major", "modern", "new", "nice", "popular", "pretty", "seasonal",
+    "short", "small", "specific", "stylish", "timeless", "top", "unexpected",
+    "viral",
 }
 
 # A candidate must contain at least one concrete fashion-domain cue. This is
@@ -146,17 +181,24 @@ FASHION_PRODUCT_TOKENS = {
     "silhouettes", "skirt", "skirts", "sneaker", "sneakers", "suit", "suits",
     "sweater", "sweaters", "tie", "ties", "top", "tops", "tote", "totes",
     "trainer", "trainers", "trouser", "trousers", "vest", "vests", "watch",
-    "watches",
+    "watches", "collar", "collars", "cuff", "cuffs", "hem", "hems",
+    "neckline", "necklines", "pocket", "pockets", "shoulder", "shoulders",
+    "sleeve", "sleeves",
 }
 
 FASHION_STYLE_TOKENS = {
-    "animal", "archive", "athleisure", "ballet", "balletcore", "barrel",
-    "boho", "bohemian", "burgundy", "capri", "charm", "coastal", "coquette",
-    "corsetry", "crochet", "denim", "drop", "gorpcore", "lace", "leather",
-    "leopard", "maxi", "metallic", "minimalist", "maximalist", "nautical",
-    "polka", "preloved", "preowned", "print", "raffia", "resale", "satin",
-    "sheer", "silk", "street", "streetwear", "suede", "tailoring", "tweed",
-    "vintage", "waist", "woven", "y2k",
+    "animal", "archive", "asymmetrical", "athleisure", "babydoll", "ballet",
+    "balletcore", "barrel", "boho", "bohemian", "bold", "burgundy", "bustier",
+    "capri", "charm", "check", "coastal", "color", "colour", "coquette",
+    "corsetry", "crochet", "denim", "drape", "drop", "feather", "floral",
+    "frill", "fringe", "fringed", "fur", "gorpcore", "lace", "ladylike",
+    "leather", "leopard", "lingerie", "maxi", "metallic", "minimalist",
+    "maximalist", "nautical", "polka", "polo", "preloved", "preowned",
+    "peplum", "preppy", "print", "puff", "puffed", "raffia", "resale",
+    "romantic", "ruched", "ruffle", "ruffled", "satin", "sheer", "silk",
+    "stripe", "stripes", "street", "streetwear", "suede", "tailoring",
+    "transparent", "tweed", "utility", "vintage", "volume", "waist", "woven",
+    "y2k",
 }
 
 FASHION_DOMAIN_TOKENS = {
@@ -174,8 +216,8 @@ CATEGORY_RULES = {
 SOURCE_WEIGHTS = {
     "google": 0.35,
     "open_x": 0.20,
-    "expert": 0.35,
-    "visual": 0.10,
+    "commercial": 0.35,
+    "instagram": 0.10,
 }
 
 
@@ -192,7 +234,7 @@ def _clean_phrase(value: str) -> str:
     return re.sub(r"\s+", " ", value).strip()
 
 
-def generic_trend_reason(value: str) -> str:
+def generic_trend_reason(value: str, *, trusted_source: bool = False) -> str:
     """Explain why a label is too broad or unrelated to fashion.
 
     A descriptor plus a product remains valid (``black bags`` or ``red
@@ -210,12 +252,27 @@ def generic_trend_reason(value: str) -> str:
     if phrase in EXACT_TREND_BLOCKLIST:
         return "Exact broad or non-actionable trend label"
     tokens = set(phrase.split())
+    if len(tokens) == 1:
+        if phrase in STANDALONE_TREND_ALLOWLIST:
+            return ""
+        if trusted_source and phrase in TRUSTED_STANDALONE_ALLOWLIST:
+            return ""
+        return "Standalone category or vague style label"
+    if phrase in SPECIFIC_PHRASE_ALLOWLIST:
+        return ""
     if not (
         tokens & FASHION_PRODUCT_TOKENS
         or tokens & FASHION_STYLE_TOKENS
         or tokens & FASHION_DOMAIN_TOKENS
     ):
         return "No clear fashion product, material, silhouette or style signal"
+    if tokens & FASHION_PRODUCT_TOKENS:
+        descriptors = tokens - FASHION_PRODUCT_TOKENS
+        descriptors -= GENERIC_FASHION_FILLERS
+        descriptors -= NON_SPECIFIC_DESCRIPTOR_TOKENS
+        descriptors -= FASHION_DOMAIN_TOKENS
+        if not descriptors:
+            return "Category label has only vague or editorial descriptors"
     return ""
 
 
@@ -281,7 +338,14 @@ def sanitize_snapshot_trends(snapshot: dict[str, Any]) -> dict[str, Any]:
     """Remove broad or non-fashion labels before any page renders."""
 
     trends = list(snapshot.get("trends") or [])
-    audit = list((snapshot.get("meta") or {}).get("filtered_terms") or [])
+    snapshot_meta = snapshot.get("meta") or {}
+    audit = list(snapshot_meta.get("filtered_terms") or [])
+    display_schema_current = str(
+        snapshot_meta.get("google_display_schema_version") or ""
+    ) == "2.0"
+    google_status = str(
+        (snapshot_meta.get("source_status") or {}).get("google_trends") or ""
+    ).casefold()
     kept: list[dict[str, Any]] = []
     removed_ids: set[str] = set()
     remapped_ids: dict[str, str] = {}
@@ -307,7 +371,32 @@ def sanitize_snapshot_trends(snapshot: dict[str, Any]) -> dict[str, Any]:
             if series:
                 cleaned, quality = validate_series(series)
                 normalised["series"] = cleaned
-                normalised["chart_ready"] = bool(quality["chart_ready"])
+                has_raw_index = bool(cleaned) and all(
+                    point.get("raw_value") is not None for point in cleaned
+                )
+                can_display = bool(
+                    has_raw_index
+                    or display_schema_current
+                    or "manual csv" in google_status
+                )
+                display_series, display_quality = google_display_series(cleaned)
+                if can_display:
+                    normalised["display_series"] = display_series
+                    normalised["chart_ready"] = bool(
+                        display_quality["chart_ready"]
+                    )
+                else:
+                    normalised["display_series"] = []
+                    normalised["chart_ready"] = False
+                    display_quality = {
+                        **display_quality,
+                        "chart_ready": False,
+                        "issue": (
+                            "This older snapshot does not preserve Google's raw "
+                            "0–100 display index; refresh it before charting"
+                        ),
+                    }
+                quality = display_quality
                 normalised["series_quality"] = quality
                 normalised["series_issue"] = str(quality["issue"])
                 if not quality["score_ready"]:
@@ -317,7 +406,13 @@ def sanitize_snapshot_trends(snapshot: dict[str, Any]) -> dict[str, Any]:
             has_google = normalised.get("google_score") is not None
             has_confirmation = any(
                 normalised.get(component) is not None
-                for component in ("x_score", "expert_score", "visual_score")
+                for component in (
+                    "x_score",
+                    "commercial_score",
+                    "instagram_score",
+                    "expert_score",
+                    "visual_score",
+                )
             )
             if normalised.get("decision_ready") and not (
                 has_google and has_confirmation
@@ -329,8 +424,8 @@ def sanitize_snapshot_trends(snapshot: dict[str, Any]) -> dict[str, Any]:
                     for component, label in (
                         ("google_score", "Google Trends"),
                         ("x_score", "Open X"),
-                        ("expert_score", "commercial sources"),
-                        ("visual_score", "Instagram visual evidence"),
+                        ("commercial_score", "commercial reports"),
+                        ("instagram_score", "Instagram hashtag metadata"),
                     )
                     if normalised.get(component) is None
                 ]
@@ -361,7 +456,7 @@ def sanitize_snapshot_trends(snapshot: dict[str, Any]) -> dict[str, Any]:
     raw_counts["filtered_generic_terms"] = len(meta["filtered_terms"])
     raw_counts["recommendations"] = len(updated["recommendations"])
     meta["raw_counts"] = raw_counts
-    meta["quality_filter_version"] = "3.0"
+    meta["quality_filter_version"] = "4.0"
     updated["meta"] = meta
     return updated
 
@@ -1015,6 +1110,7 @@ def score_google_series(
             )
         )
         name = canonical_name(term)
+        display_points, display_quality = google_display_series(cleaned_points)
         rows.append(
             {
                 "id": slugify(name),
@@ -1025,10 +1121,11 @@ def score_google_series(
                 "search_momentum": round(momentum, 1),
                 "search_slope": round(slope, 2),
                 "series": cleaned_points,
+                "display_series": display_points,
                 "aliases": [term],
-                "chart_ready": bool(quality["chart_ready"]),
-                "series_quality": quality,
-                "series_issue": str(quality["issue"]),
+                "chart_ready": bool(display_quality["chart_ready"]),
+                "series_quality": display_quality,
+                "series_issue": str(display_quality["issue"]),
             }
         )
     interest_rank = _rank_scores([row["search_interest"] for row in rows])
@@ -1071,6 +1168,9 @@ def score_google_windows(
                 recent.get("search_momentum") or 0
             )
             updated["recent_series"] = list(recent.get("series") or [])
+            updated["recent_display_series"] = list(
+                recent.get("display_series") or []
+            )
             updated["recent_series_quality"] = dict(
                 recent.get("series_quality") or {}
             )
@@ -1079,6 +1179,7 @@ def score_google_windows(
             updated["google_recent_score"] = None
             updated["search_momentum_7d"] = None
             updated["recent_series"] = []
+            updated["recent_display_series"] = []
             updated["recent_series_quality"] = {}
         output.append(updated)
     return sorted(
@@ -1121,26 +1222,21 @@ def _why_now(row: dict[str, Any]) -> str:
         clauses.append(
             f"open X discussion is {float(row.get('mention_growth') or 0):+.0f}% week on week across {int(row.get('unique_authors') or 0)} independent authors"
         )
-    if row.get("expert_score") is not None:
-        priority_mentions = int(
-            row.get("commercial_priority_mentions") or 0
-        )
-        priority_clause = (
-            f", including {priority_mentions} high-priority commercial signal"
-            f"{'' if priority_mentions == 1 else 's'}"
-            if priority_mentions
-            else ""
-        )
+    if row.get("commercial_score") is not None:
+        publisher_count = int(row.get("publisher_count") or 0)
+        article_count = int(row.get("commercial_article_count") or 0)
         clauses.append(
-            f"the curated commercial panel contributed "
-            f"{int(row.get('expert_mentions') or 0)} current mentions"
-            f"{priority_clause}"
+            f"{publisher_count} approved publisher"
+            f"{'' if publisher_count == 1 else 's'} explicitly named it across "
+            f"{article_count} current article or report signal"
+            f"{'' if article_count == 1 else 's'}"
         )
-    if row.get("visual_score") is not None:
+    if row.get("instagram_score") is not None:
+        hashtag = str(row.get("instagram_hashtag") or "")
+        post_count = int(row.get("instagram_posts_count") or 0)
         clauses.append(
-            f"the Instagram visual panel contributed "
-            f"{int(row.get('visual_mentions') or 0)} current post"
-            f"{'' if int(row.get('visual_mentions') or 0) == 1 else 's'}"
+            f"Instagram aggregate metadata reports {post_count:,} uses of "
+            f"#{hashtag}" if hashtag else "Instagram hashtag metadata provides a directional comparison"
         )
     if not clauses:
         return "The available evidence is directional and should be validated before use."
@@ -1160,20 +1256,32 @@ def merge_trend_signals(
     google_rows: list[dict[str, Any]],
     x_rows: list[dict[str, Any]],
     *,
+    commercial_rows: list[dict[str, Any]] | None = None,
+    instagram_rows: list[dict[str, Any]] | None = None,
     limit: int = 15,
     audit: list[dict[str, str]] | None = None,
 ) -> list[dict[str, Any]]:
     grouped: dict[str, dict[str, Any]] = defaultdict(dict)
-    for source_name, rows in (("google", google_rows), ("x", x_rows)):
+    source_rows: list[tuple[str, list[dict[str, Any]], str]] = [
+        ("google", google_rows, "google_score"),
+        ("x", x_rows, "open_x_score"),
+    ]
+    if commercial_rows is not None:
+        source_rows.append(("commercial", commercial_rows, "commercial_score"))
+    if instagram_rows is not None:
+        source_rows.append(("instagram", instagram_rows, "instagram_score"))
+    for source_name, rows, score_key in source_rows:
         for row in rows:
             canonical = canonical_name(str(row.get("name", "")))
-            reason = generic_trend_reason(canonical)
+            reason = generic_trend_reason(
+                canonical,
+                trusted_source=source_name == "commercial",
+            )
             if reason:
                 _audit_filtered(audit, canonical, f"{source_name.title()} trend", reason)
                 continue
             key = slugify(canonical)
             current = grouped[key].get(source_name)
-            score_key = "google_score" if source_name == "google" else "open_x_score"
             if current is None or float(row.get(score_key) or 0) > float(current.get(score_key) or 0):
                 grouped[key][source_name] = row
 
@@ -1181,7 +1289,25 @@ def merge_trend_signals(
     for key, evidence in grouped.items():
         google = evidence.get("google") or {}
         social = evidence.get("x") or {}
-        name = google.get("name") or social.get("name") or key
+        commercial = evidence.get("commercial") or {}
+        instagram = evidence.get("instagram") or {}
+        name = (
+            google.get("name")
+            or commercial.get("name")
+            or social.get("name")
+            or instagram.get("name")
+            or key
+        )
+        legacy_commercial = (
+            social.get("expert_score")
+            if commercial_rows is None and social
+            else None
+        )
+        legacy_instagram = (
+            social.get("visual_score")
+            if instagram_rows is None and social
+            else None
+        )
         components = {
             "google": google.get("google_score") if google else None,
             "open_x": (
@@ -1191,8 +1317,16 @@ def merge_trend_signals(
             )
             if social
             else None,
-            "expert": social.get("expert_score") if social else None,
-            "visual": social.get("visual_score") if social else None,
+            "commercial": (
+                commercial.get("commercial_score")
+                if commercial
+                else legacy_commercial
+            ),
+            "instagram": (
+                instagram.get("instagram_score")
+                if instagram
+                else legacy_instagram
+            ),
         }
         available = {
             component: float(value)
@@ -1206,19 +1340,26 @@ def merge_trend_signals(
         ) / denominator
         has_google = "google" in available
         has_open_x = "open_x" in available
-        has_expert = "expert" in available
-        has_visual = "visual" in available
+        has_commercial = "commercial" in available
+        has_instagram = "instagram" in available
         has_priority_commercial = bool(
-            int(social.get("commercial_priority_mentions") or 0)
+            int(
+                commercial.get("commercial_priority_mentions")
+                or social.get("commercial_priority_mentions")
+                or 0
+            )
         )
-        decision_ready = has_google and (has_open_x or has_expert or has_visual)
-        if has_google and has_open_x and (has_expert or has_visual):
+        publisher_count = int(commercial.get("publisher_count") or 0)
+        decision_ready = has_google and (
+            has_open_x or has_commercial or has_instagram
+        )
+        if has_google and has_commercial and (has_open_x or has_instagram):
             confidence = "High"
-        elif has_priority_commercial and has_google:
+        elif has_google and has_commercial and publisher_count >= 2:
             confidence = "High"
         elif has_google and has_open_x:
             confidence = "Medium"
-        elif has_google and (has_expert or has_visual):
+        elif has_google and (has_commercial or has_instagram):
             confidence = "Medium"
         else:
             confidence = "Exploratory"
@@ -1227,13 +1368,8 @@ def merge_trend_signals(
             for source, present in (
                 ("Google Trends", has_google),
                 ("Open X topics", has_open_x),
-                (
-                    "Priority commercial panel"
-                    if has_priority_commercial
-                    else "Supporting fashion panel",
-                    has_expert,
-                ),
-                ("Instagram visual panel", has_visual),
+                ("Commercial reports", has_commercial),
+                ("Instagram hashtag signal", has_instagram),
             )
             if present
         ]
@@ -1242,6 +1378,7 @@ def merge_trend_signals(
                 [
                     *google.get("aliases", []),
                     *social.get("aliases", []),
+                    *commercial.get("aliases", []),
                     str(google.get("query", "")),
                     str(name),
                 ]
@@ -1255,9 +1392,13 @@ def merge_trend_signals(
             "google_score": round(float(components["google"]), 1) if components["google"] is not None else None,
             "x_score": round(float(components["open_x"]), 1) if components["open_x"] is not None else None,
             "open_x_score": round(float(components["open_x"]), 1) if components["open_x"] is not None else None,
-            "expert_score": round(float(components["expert"]), 1) if components["expert"] is not None else None,
-            "commercial_source_score": round(float(components["expert"]), 1) if components["expert"] is not None else None,
-            "visual_score": round(float(components["visual"]), 1) if components["visual"] is not None else None,
+            "commercial_score": round(float(components["commercial"]), 1) if components["commercial"] is not None else None,
+            "commercial_source_score": round(float(components["commercial"]), 1) if components["commercial"] is not None else None,
+            # Compatibility aliases keep older report/export code readable.
+            "expert_score": round(float(components["commercial"]), 1) if components["commercial"] is not None else None,
+            "instagram_score": round(float(components["instagram"]), 1) if components["instagram"] is not None else None,
+            "instagram_hashtag_score": round(float(components["instagram"]), 1) if components["instagram"] is not None else None,
+            "visual_score": round(float(components["instagram"]), 1) if components["instagram"] is not None else None,
             "search_interest": google.get("search_interest"),
             "search_baseline": google.get("search_baseline"),
             "search_momentum": float(google.get("search_momentum") or 0),
@@ -1277,7 +1418,9 @@ def merge_trend_signals(
             "visual_authors": int(social.get("visual_authors") or 0),
             "visual_growth": float(social.get("visual_growth") or 0),
             "commercial_priority_mentions": int(
-                social.get("commercial_priority_mentions") or 0
+                commercial.get("commercial_priority_mentions")
+                or social.get("commercial_priority_mentions")
+                or 0
             ),
             "commercial_priority_authors": int(
                 social.get("commercial_priority_authors") or 0
@@ -1289,6 +1432,14 @@ def merge_trend_signals(
             "spam_rate": float(social.get("spam_rate") or 0),
             "evidence_quality": float(social.get("evidence_quality") or 0),
             "novelty_score": float(social.get("novelty_score") or 0),
+            "publisher_count": publisher_count,
+            "commercial_article_count": int(commercial.get("article_count") or 0),
+            "commercial_evidence": list(commercial.get("commercial_evidence") or []),
+            "instagram_hashtag": str(instagram.get("hashtag") or ""),
+            "instagram_posts_count": int(instagram.get("posts_count") or 0),
+            "instagram_posts_per_day": float(instagram.get("posts_per_day") or 0),
+            "instagram_related_hashtags": list(instagram.get("related_hashtags") or []),
+            "instagram_directional_only": bool(instagram),
             "confidence": confidence,
             "decision_ready": decision_ready,
             "missing_components": [
@@ -1296,14 +1447,15 @@ def merge_trend_signals(
                 for component, label in (
                     ("google", "Google Trends"),
                     ("open_x", "Open X"),
-                    ("expert", "commercial sources"),
-                    ("visual", "Instagram visual evidence"),
+                    ("commercial", "commercial reports"),
+                    ("instagram", "Instagram hashtag metadata"),
                 )
                 if component not in available
             ],
             "sources": sources,
             "aliases": aliases,
             "series": google.get("series", []),
+            "display_series": google.get("display_series", []),
             "recent_series": google.get("recent_series", []),
             "chart_ready": bool(google.get("chart_ready")),
             "series_quality": dict(google.get("series_quality") or {}),
@@ -1314,7 +1466,10 @@ def merge_trend_signals(
             },
         }
         row["category"] = infer_category(str(name))
-        row["stage"] = infer_stage(row["search_momentum"], row["author_growth"] or row["mention_growth"])
+        row["stage"] = infer_stage(
+            row["search_momentum"],
+            row["author_growth"] or row["mention_growth"],
+        )
         row["why_now"] = _why_now(row)
         row["content_angles"] = _content_angles(str(name), row["category"])
         merged.append(row)

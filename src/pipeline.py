@@ -20,8 +20,14 @@ from src.analysis.trends import (
     score_google_windows,
 )
 from src.config import Settings
-from src.connectors.apify_instagram import ApifyInstagramConnector
+from src.connectors.apify_instagram_hashtags import (
+    InstagramHashtagAnalyticsConnector,
+)
 from src.connectors.apify_x import ApifyXConnector
+from src.connectors.commercial_sources import (
+    CommercialSourceCollector,
+    score_commercial_evidence,
+)
 from src.connectors.gemini_research import GeminiResearchConnector
 from src.connectors.google_trends import GoogleTrendsConnector
 from src.connectors.openrouter import OpenRouterConnector
@@ -78,6 +84,8 @@ def _cache_state(
 ) -> tuple[dict[str, Any], float | None]:
     cache = dict((snapshot or {}).get("google_cache") or {})
     compatible = (
+        str(cache.get("schema_version") or "") == "2.0"
+        and
         str(cache.get("market") or "").upper() == settings.google_geo.upper()
         and str(cache.get("context_timeframe") or "") == settings.google_timeframe
         and str(cache.get("discovery_timeframe") or "")
@@ -188,96 +196,88 @@ def _collect_x(
         return [], summary, _status("FAILED", type(exc).__name__)
 
 
-def _collect_instagram(
+def _collect_commercial_sources(
     settings: Settings,
+    warnings: list[str],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any], str]:
+    if not settings.commercial_sources_enabled:
+        return [], [], {}, "NOT CONFIGURED"
+    try:
+        result = CommercialSourceCollector(
+            timeout_seconds=settings.commercial_timeout_seconds,
+            max_workers=settings.commercial_max_workers,
+        ).collect()
+        evidence = list(result.pop("evidence", []))
+        rows = score_commercial_evidence(evidence)
+        live = int(result.get("publishers_live") or 0)
+        partial = int(result.get("publishers_partial") or 0)
+        failed = int(result.get("publishers_failed") or 0)
+        state = "LIVE" if live and not failed and not partial else "PARTIAL"
+        if not live and not partial:
+            state = "FAILED"
+        for key, detail in (result.get("source_status") or {}).items():
+            if str(detail.get("state") or "") == "FAILED":
+                errors = detail.get("errors") or []
+                warnings.append(
+                    f"Commercial source {detail.get('publisher') or key}: "
+                    + (str(errors[0]) if errors else "no usable response")
+                )
+        status = _status(
+            state,
+            f"{live + partial}/{int(result.get('publishers_requested') or 0)} publishers"
+            f" · {len(evidence)} explicit evidence rows",
+        )
+        return evidence, rows, result, status
+    except Exception as exc:
+        warnings.append(f"Commercial websites: {exc}")
+        return [], [], {}, _status("FAILED", type(exc).__name__)
+
+
+def _collect_instagram_hashtags(
+    settings: Settings,
+    qualified_trends: list[dict[str, Any]],
     warnings: list[str],
 ) -> tuple[list[dict[str, Any]], dict[str, Any], str]:
     summary: dict[str, Any] = {
-        "requested_profiles": settings.instagram_accounts,
-        "returned_profiles": [],
-        "missing_profiles": [],
-        "profile_counts": {},
+        "hashtags_requested": [],
+        "hashtags_returned": [],
+        "missing_hashtags": [],
         "items_returned": 0,
-        "items_accepted": 0,
-        "freshness": {},
         "usage_usd": None,
+        "privacy_mode": "aggregate metadata; top/latest posts disabled",
     }
     if not settings.instagram_configured:
         return [], summary, "NOT CONFIGURED"
+    if not qualified_trends:
+        return [], summary, _status("PARTIAL", "no qualified trend hashtags")
     try:
-        result = ApifyInstagramConnector(
+        result = InstagramHashtagAnalyticsConnector(
             settings.apify_token,
             actor_id=settings.apify_instagram_actor_id,
             timeout_seconds=settings.apify_timeout_seconds,
             memory_mb=settings.apify_x_memory_mb,
         ).collect(
-            settings.instagram_accounts,
-            account_weights=settings.instagram_account_weights,
-            results_per_profile=settings.instagram_results_per_profile,
+            qualified_trends,
+            max_terms=settings.instagram_hashtag_max_terms,
             max_total_charge_usd=settings.instagram_max_total_charge_usd,
         )
-        posts = list(result.pop("posts", []))
+        rows = list(result.pop("metrics", []))
         summary.update(result)
-        freshness = result.get("freshness") or {}
-        partial = bool(
-            result.get("missing_profiles")
-            or freshness.get("rejected")
-            or not posts
-        )
-        state = source_freshness_state(
-            configured=True,
-            succeeded=True,
-            accepted=len(posts),
-            rejected=int(freshness.get("rejected") or 0),
-            partial=partial,
-            newest_at=freshness.get("newest_post"),
-        )
-        detail = (
-            f"{len(result.get('returned_profiles') or [])}/"
-            f"{len(settings.instagram_accounts)} profiles · {len(posts):,} dated posts"
-        )
-        if result.get("missing_profiles"):
+        returned = len(result.get("hashtags_returned") or [])
+        requested = len(result.get("hashtags_requested") or [])
+        state = "LIVE" if rows and returned == requested else "PARTIAL"
+        if result.get("missing_hashtags"):
             warnings.append(
-                "Instagram profiles with no current-window results: "
-                + ", ".join(result["missing_profiles"])
+                "Instagram hashtag metadata missing for: "
+                + ", ".join(result["missing_hashtags"])
             )
-        return posts, summary, _status(state, detail)
+        return rows, summary, _status(
+            state,
+            f"{returned}/{requested} aggregate hashtags",
+        )
     except Exception as exc:
-        warnings.append(f"Instagram/Apify: {exc}")
+        warnings.append(f"Instagram hashtag metadata: {exc}")
         return [], summary, _status("FAILED", type(exc).__name__)
-
-
-def _apply_visual_terms(
-    posts: list[dict[str, Any]],
-    connector: OpenRouterConnector | None,
-    *,
-    max_posts: int,
-    warnings: list[str],
-) -> int:
-    if connector is None or not posts:
-        return 0
-    try:
-        terms_by_post = connector.extract_instagram_visual_terms(
-            posts,
-            max_posts=max_posts,
-        )
-        enriched = 0
-        for post in posts:
-            terms = terms_by_post.get(str(post.get("post_hash"))) or []
-            if not terms:
-                continue
-            post["visual_terms"] = terms
-            post["text"] = (
-                f"{post.get('text', '')}\nVisual trend labels: "
-                + ", ".join(terms)
-            )
-            enriched += 1
-        return enriched
-    except Exception as exc:
-        warnings.append(
-            f"Instagram visual reading: {exc}. Caption evidence was retained."
-        )
-        return 0
 
 
 def _history_presence(
@@ -300,13 +300,14 @@ def _clean_candidate_terms(
     limit: int,
     filtered_terms: list[dict[str, str]],
     source: str,
+    trusted_source: bool = False,
 ) -> list[str]:
     output: list[str] = []
     for raw in terms:
         term = str(raw or "").strip()
         if not term:
             continue
-        reason = generic_trend_reason(term)
+        reason = generic_trend_reason(term, trusted_source=trusted_source)
         if reason:
             filtered_terms.append(
                 {"term": term, "source": source, "reason": reason}
@@ -323,6 +324,7 @@ def _collect_google(
     settings: Settings,
     *,
     x_rows: list[dict[str, Any]],
+    commercial_rows: list[dict[str, Any]],
     existing_snapshot: dict[str, Any] | None,
     warnings: list[str],
     filtered_terms: list[dict[str, str]],
@@ -430,7 +432,7 @@ def _collect_google(
                 )
         except Exception as exc:
             warnings.append(
-                f"Google rising-query discovery: {exc}. Known social candidates were still validated."
+                f"Google rising-query discovery: {exc}. Known publisher and social candidates were still validated."
             )
             attempts.append(
                 {
@@ -445,17 +447,27 @@ def _collect_google(
             for row in related
             if isinstance(row, dict)
         ]
+        commercial_terms = _clean_candidate_terms(
+            [str(row.get("name") or "") for row in commercial_rows],
+            limit=settings.google_max_terms,
+            filtered_terms=filtered_terms,
+            source="Commercial report validation candidate",
+            trusted_source=True,
+        )
         initial_terms = [
             *(str(row.get("name") or "") for row in x_rows),
             *related_terms,
             *settings.fashion_terms,
         ]
-        candidates = _clean_candidate_terms(
+        supporting_terms = _clean_candidate_terms(
             initial_terms,
             limit=settings.google_max_terms,
             filtered_terms=filtered_terms,
             source="Google validation candidate",
         )
+        candidates = list(
+            dict.fromkeys([*commercial_terms, *supporting_terms])
+        )[: settings.google_max_terms]
         try:
             context_result = context.collect(candidates, discovery_seeds=[])
             context_series = dict(context_result.get("series") or {})
@@ -521,6 +533,7 @@ def _collect_google(
                 ),
             )
             cache_out = {
+                "schema_version": "2.0",
                 "collected_at": datetime.now(tz=timezone.utc).isoformat(),
                 "market": settings.google_geo,
                 "context_timeframe": settings.google_timeframe,
@@ -739,22 +752,26 @@ def refresh_snapshot(
         settings,
         warnings,
     )
-    instagram_posts, instagram_collection, source_status[
-        "instagram"
-    ] = _collect_instagram(settings, warnings)
-    visual_posts_enriched = _apply_visual_terms(
-        instagram_posts,
-        openrouter,
-        max_posts=settings.instagram_visual_max_posts,
-        warnings=warnings,
+    commercial_evidence, commercial_rows, commercial_collection, source_status[
+        "commercial_websites"
+    ] = _collect_commercial_sources(
+        settings,
+        warnings,
     )
 
-    all_posts, combined_duplicate_stats = deduplicate_posts(
-        [*x_posts, *instagram_posts]
-    )
+    all_posts, combined_duplicate_stats = deduplicate_posts(x_posts)
     all_posts, combined_freshness = validate_fresh_posts(all_posts)
 
     candidates = discover_x_candidates(all_posts, audit=filtered_terms)
+    candidates.extend(
+        {
+            "phrase": str(row.get("name") or ""),
+            "name": str(row.get("name") or ""),
+            "count": max(3, 3 * int(row.get("article_count") or 1)),
+        }
+        for row in commercial_rows
+        if row.get("name")
+    )
     semantic_clusters = build_topic_clusters(
         candidates,
         audit=filtered_terms,
@@ -785,13 +802,30 @@ def refresh_snapshot(
     ], google_fresh = _collect_google(
         settings,
         x_rows=social_rows,
+        commercial_rows=commercial_rows,
         existing_snapshot=existing_snapshot,
         warnings=warnings,
         filtered_terms=filtered_terms,
     )
+    qualified_for_instagram = list(
+        {
+            str(row.get("id") or row.get("name")): row
+            for row in [*google_rows, *commercial_rows, *social_rows]
+            if row.get("name")
+        }.values()
+    )
+    instagram_rows, instagram_collection, source_status[
+        "instagram_hashtags"
+    ] = _collect_instagram_hashtags(
+        settings,
+        qualified_for_instagram,
+        warnings,
+    )
     trends = merge_trend_signals(
         google_rows,
         social_rows,
+        commercial_rows=commercial_rows,
+        instagram_rows=instagram_rows,
         audit=filtered_terms,
     )
     if not google_fresh:
@@ -809,7 +843,7 @@ def refresh_snapshot(
                 + (
                     " · local semantic fallback"
                     if semantic_error
-                    else " · semantic + visual enrichment"
+                    else " · semantic grouping + copy enrichment"
                 ),
             )
         except Exception as exc:
@@ -935,7 +969,12 @@ def refresh_snapshot(
         source_status["google_trends"].startswith(("LIVE", "PARTIAL"))
         and (
             source_status["x_apify"].startswith(("LIVE", "PARTIAL"))
-            or source_status["instagram"].startswith(("LIVE", "PARTIAL"))
+            or source_status["commercial_websites"].startswith(
+                ("LIVE", "PARTIAL")
+            )
+            or source_status["instagram_hashtags"].startswith(
+                ("LIVE", "PARTIAL")
+            )
         )
     )
     if fallback_kind == "stale":
@@ -963,10 +1002,9 @@ def refresh_snapshot(
             "source_status": source_status,
             "google_trends": google_meta,
             "x_listening": x_collection,
-            "instagram_collection": {
-                **instagram_collection,
-                "visual_posts_enriched": visual_posts_enriched,
-            },
+            "commercial_collection": commercial_collection,
+            "commercial_evidence": commercial_evidence,
+            "instagram_hashtag_collection": instagram_collection,
             "combined_social_freshness": {
                 **combined_freshness,
                 **combined_duplicate_stats,
@@ -975,13 +1013,12 @@ def refresh_snapshot(
             "raw_counts": {
                 "x_posts_collected": int(x_collection.get("collected") or 0),
                 "x_posts_accepted": len(x_posts),
-                "instagram_posts_returned": int(
-                    instagram_collection.get("items_returned") or 0
+                "commercial_evidence_rows": len(commercial_evidence),
+                "commercial_trends": len(commercial_rows),
+                "commercial_publishers_live": int(
+                    commercial_collection.get("publishers_live") or 0
                 ),
-                "instagram_posts_accepted": len(instagram_posts),
-                "instagram_profiles_returned": len(
-                    instagram_collection.get("returned_profiles") or []
-                ),
+                "instagram_hashtags_returned": len(instagram_rows),
                 "social_posts_aggregated": len(all_posts),
                 "social_duplicates_removed": int(
                     combined_duplicate_stats.get("duplicates_removed") or 0
@@ -996,13 +1033,16 @@ def refresh_snapshot(
                 "recommendations": len(recommendations),
             },
             "warnings": warnings,
-            "methodology_version": "0.5",
-            "quality_filter_version": "3.0",
+            "methodology_version": "0.6",
+            "quality_filter_version": "4.0",
+            "google_display_schema_version": "2.0",
             "privacy": (
-                "Raw X and Instagram posts are not persisted. Public Instagram "
-                "captions and a capped set of public post images may be sent to Qwen "
-                "for visual taxonomy; Gemini receives only public trend and selected "
-                "product metadata. No customers, orders or payments are accessed."
+                "Raw X posts are not persisted. Instagram is queried only for aggregate "
+                "hashtag counts with top/latest post collection disabled; no Instagram "
+                "captions, accounts or images enter the pipeline. Commercial evidence "
+                "stores only public publisher titles, trend-labelled headings, dates and "
+                "URLs. Gemini receives only public trend and selected product metadata. "
+                "No customers, orders or payments are accessed."
             ),
         },
         "google_cache": google_cache,

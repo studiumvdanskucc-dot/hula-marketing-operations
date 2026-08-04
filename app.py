@@ -14,9 +14,8 @@ import plotly.graph_objects as go
 import streamlit as st
 from PIL import Image, ImageChops
 
-from src.analysis.freshness import parse_utc, validate_series
+from src.analysis.freshness import parse_utc
 from src.analysis.listening import (
-    PRIORITY_COMMERCIAL_SOURCES,
     build_listening_plan,
 )
 from src.analysis.matching import match_products
@@ -28,8 +27,14 @@ from src.analysis.trends import (
 )
 from src.config import Settings, load_settings
 from src.connectors.apify_x import ApifyXConnector
-from src.connectors.apify_instagram import ApifyInstagramConnector
+from src.connectors.apify_instagram_hashtags import (
+    InstagramHashtagAnalyticsConnector,
+)
 from src.connectors.catalog_csv import SIMPLE_CSV_TEMPLATE, parse_product_csv
+from src.connectors.commercial_sources import (
+    COMMERCIAL_SOURCES,
+    CommercialSourceCollector,
+)
 from src.connectors.gemini_research import GeminiResearchConnector
 from src.connectors.google_trends import GoogleTrendsConnector
 from src.connectors.openrouter import OpenRouterConnector
@@ -59,7 +64,7 @@ PALETTE = [PINK, INK, LILAC, "#e8a846", "#6f8e84", "#d46262"]
 CATALOGUE_CSV = "Upload CSV"
 CATALOGUE_API = "Shopify API"
 CATALOGUE_SELECTOR_KEY = "catalogue_source_selector_v2"
-APP_BUILD = "2026.07.28.1"
+APP_BUILD = "2026.08.03.1"
 DECISION_COLORS = {
     "Act now": PINK,
     "Test this week": "#e8a846",
@@ -243,9 +248,8 @@ def business_decision(trend: dict) -> str:
         sources
         & {
             "Open X topics",
-            "Priority commercial panel",
-            "Supporting fashion panel",
-            "Instagram visual panel",
+            "Commercial reports",
+            "Instagram hashtag signal",
         }
     )
     confidence = str(trend.get("confidence") or "")
@@ -269,65 +273,40 @@ def decision_legend() -> None:
     )
 
 
-def radar_rank_chart(trends: list[dict], *, limit: int = 10) -> go.Figure:
-    """A business-first ranking without overlapping labels or raw growth outliers."""
+def google_direction(trend: dict) -> str:
+    momentum = float(trend.get("search_momentum") or 0)
+    if momentum >= 10:
+        return "Rising"
+    if momentum <= -10:
+        return "Cooling"
+    return "Stable"
 
+
+def priority_rows(trends: list[dict], *, limit: int = 10) -> pd.DataFrame:
     rows = sorted(
         trends,
         key=lambda row: float(row.get("score") or 0),
         reverse=True,
     )[:limit]
-    ordered_names = [str(row.get("name") or "Untitled trend") for row in rows]
-    figure = go.Figure()
-    for decision in ("Act now", "Test this week", "Watch"):
-        selected = [row for row in rows if business_decision(row) == decision]
-        if not selected:
-            continue
-        figure.add_trace(
-            go.Bar(
-                x=[float(row.get("score") or 0) for row in selected],
-                y=[str(row.get("name") or "Untitled trend") for row in selected],
-                orientation="h",
-                name=decision,
-                marker=dict(color=DECISION_COLORS[decision]),
-                text=[f"{float(row.get('score') or 0):.0f}" for row in selected],
-                textposition="outside",
-                cliponaxis=False,
-                customdata=[
-                    [
-                        decision,
-                        str(row.get("confidence") or "—"),
-                        " + ".join(row.get("sources") or []) or "One available source",
-                    ]
-                    for row in selected
-                ],
-                hovertemplate=(
-                    "<b>%{y}</b><br>Priority score: %{x:.0f}/100"
-                    "<br>Decision: %{customdata[0]}"
-                    "<br>Confidence: %{customdata[1]}"
-                    "<br>Evidence: %{customdata[2]}<extra></extra>"
+    return pd.DataFrame(
+        [
+            {
+                "Rank": index + 1,
+                "Trend": row.get("name"),
+                "Decision": business_decision(row).upper(),
+                "Priority": f"{float(row.get('score') or 0):.0f}/100",
+                "Google": google_direction(row),
+                "Publishers": int(row.get("publisher_count") or 0),
+                "Instagram hashtag": (
+                    f"#{row.get('instagram_hashtag')}"
+                    if row.get("instagram_hashtag")
+                    else "Not collected"
                 ),
-            )
-        )
-    figure.update_layout(
-        barmode="overlay",
-        bargap=0.34,
-        xaxis=dict(
-            title="Priority score (0–100)",
-            range=[0, 108],
-            dtick=20,
-            showgrid=True,
-            gridcolor="#ece9e5",
-            zeroline=False,
-        ),
-        yaxis=dict(
-            title="",
-            categoryorder="array",
-            categoryarray=list(reversed(ordered_names)),
-            tickfont=dict(size=13),
-        ),
+                "Missing evidence": ", ".join(row.get("missing_components") or []) or "None",
+            }
+            for index, row in enumerate(rows)
+        ]
     )
-    return plot_layout(figure, max(430, 64 * len(rows) + 120))
 
 
 def mode_banner(meta: dict) -> None:
@@ -461,21 +440,24 @@ def line_chart(trends: list[dict], selected_ids: list[str] | None = None) -> go.
     if selected_ids:
         filtered = [trend for trend in trends if str(trend.get("id")) in selected_ids]
     for index, trend in enumerate(filtered):
-        points, quality = validate_series(trend.get("series") or [])
-        if not quality["chart_ready"]:
+        points = list(trend.get("display_series") or [])
+        if not trend.get("chart_ready") or not points:
             continue
         figure.add_trace(
             go.Scatter(
                 x=[point.get("date") for point in points],
                 y=[point.get("value") for point in points],
-                mode="lines+markers",
+                mode="lines",
                 name=str(trend.get("name")),
                 line=dict(color=PALETTE[index % len(PALETTE)], width=3),
-                marker=dict(size=5),
-                hovertemplate="%{x}<br>Relative interest: %{y}<extra>%{fullData.name}</extra>",
+                hovertemplate="%{x}<br>Google index: %{y:.1f}/100<extra>%{fullData.name}</extra>",
             )
         )
-    figure.update_yaxes(title="Anchor-calibrated relative search interest", rangemode="tozero")
+    figure.update_yaxes(
+        title="Google Trends index (0–100)",
+        range=[0, 100],
+        dtick=20,
+    )
     return plot_layout(figure)
 
 
@@ -494,8 +476,8 @@ def chart_or_quality_note(
         return
     st.info(
         "No trustworthy movement chart is available for this selection. "
-        "The app excludes timelines with too few dated points or one invariant "
-        "value from both scoring and charts."
+        "The app excludes timelines with too few distinct values, excessive "
+        "plateaus, isolated spikes or no preserved raw Google 0–100 index."
     )
 
 
@@ -548,7 +530,11 @@ def this_week(snapshot: dict) -> None:
 
     section_header("02 · Momentum", "Fresh Google movement over the last month")
     chart_or_quality_note(display_trends[:5])
-    st.caption("Google Trends values are relative indices, not absolute search volumes. Live multi-query batches are approximately aligned with one repeated anchor term; demo mode uses illustrative series.")
+    st.caption(
+        "The chart shows Google's original 0–100 index with light smoothing, not "
+        "the anchor-calibrated values used internally to compare query batches. "
+        "It is relative interest, not absolute search volume."
+    )
 
     section_header("03 · Catalogue opportunity", "Products to put in front of people now")
     top_recommendations = []
@@ -621,10 +607,10 @@ def trend_radar(snapshot: dict) -> None:
     section_header("Priority view", "What to do with each trend")
     decision_legend()
     if ready_trends:
-        st.plotly_chart(
-            radar_rank_chart(ready_trends),
+        st.dataframe(
+            priority_rows(ready_trends),
+            hide_index=True,
             width="stretch",
-            config={"displayModeBar": False},
         )
     else:
         st.info(
@@ -632,8 +618,8 @@ def trend_radar(snapshot: dict) -> None:
             "social refresh; incomplete rows are retained below only for diagnosis."
         )
     st.caption(
-        "Only rows with fresh Google demand plus at least one social, commercial "
-        "or Instagram confirmation appear in the decision chart."
+        "Only rows with fresh Google demand plus at least one X, commercial-report "
+        "or Instagram-hashtag confirmation appear in this decision list."
     )
 
     decisions = [business_decision(trend) for trend in ready_trends]
@@ -641,39 +627,6 @@ def trend_radar(snapshot: dict) -> None:
     summary[0].metric("Act now", decisions.count("Act now"), "cross-source confirmation")
     summary[1].metric("Test this week", decisions.count("Test this week"), "small controlled test")
     summary[2].metric("Awaiting validation", len(watchlist), "kept out of the action list")
-
-    section_header("Ranked view", "The decision list")
-    if ready_trends:
-        def best_social_score(trend: dict) -> float:
-            values = [
-                float(value)
-                for value in (
-                    trend.get("x_score"),
-                    trend.get("expert_score"),
-                    trend.get("visual_score"),
-                )
-                if value is not None
-            ]
-            return max(values) if values else 0.0
-
-        table = pd.DataFrame(
-            [
-                {
-                    "Rank": index + 1,
-                    "Trend": trend.get("name"),
-                    "Decision": business_decision(trend),
-                    "Priority score": f"{float(trend.get('score') or 0):.0f}/100",
-                    "Google demand": f"{float(trend.get('google_score')):.0f}/100",
-                    "Social confirmation": f"{best_social_score(trend):.0f}/100",
-                    "Evidence mix": " + ".join(trend.get("sources") or []),
-                    "Confidence": trend.get("confidence"),
-                }
-                for index, trend in enumerate(ready_trends)
-            ]
-        )
-        st.dataframe(table, hide_index=True, width="stretch")
-    else:
-        st.caption("No complete row is available for the decision list.")
 
     if watchlist:
         with st.expander(
@@ -711,7 +664,10 @@ def trend_radar(snapshot: dict) -> None:
                     "X posts week on week": f"{float(trend.get('mention_growth', 0)):+.0f}%",
                     "Independent authors week on week": f"{float(trend.get('author_growth', 0)):+.0f}%",
                     "Current independent authors": int(trend.get("unique_authors", 0)),
-                    "Expert mentions": int(trend.get("expert_mentions", 0)),
+                    "Confirming publishers": int(trend.get("publisher_count", 0)),
+                    "Explicit article/report signals": int(
+                        trend.get("commercial_article_count", 0)
+                    ),
                     "Evidence quality": f"{float(trend.get('evidence_quality', 0)):.0f}/100",
                 }
                 for trend in ready_trends
@@ -754,9 +710,9 @@ def trend_radar(snapshot: dict) -> None:
             <div class="score-row"><span>Combined signal</span><strong>{float(selected.get('score', 0)):.0f}</strong></div>
             <div class="score-row"><span>Google component</span><strong>{component(selected.get('google_score'))}</strong></div>
             <div class="score-row"><span>Open X component</span><strong>{component(selected.get('x_score'))}</strong></div>
-            <div class="score-row"><span>Commercial-source component</span><strong>{component(selected.get('expert_score'))}</strong></div>
-            <div class="score-row"><span>Instagram visual component</span><strong>{component(selected.get('visual_score'))}</strong></div>
-            <div class="score-row"><span>Priority-source mentions</span><strong>{int(selected.get('commercial_priority_mentions') or 0)}</strong></div>
+            <div class="score-row"><span>Commercial-report component</span><strong>{component(selected.get('commercial_score'))}</strong></div>
+            <div class="score-row"><span>Instagram hashtag component</span><strong>{component(selected.get('instagram_score'))}</strong></div>
+            <div class="score-row"><span>Confirming publishers</span><strong>{int(selected.get('publisher_count') or 0)}</strong></div>
             <div class="score-row"><span>Independent authors</span><strong>{int(selected.get('unique_authors') or 0)}</strong></div>
             <div class="score-row"><span>Evidence quality</span><strong>{float(selected.get('evidence_quality') or 0):.0f}</strong></div>
             <div class="score-row"><span>Confidence</span><strong>{html.escape(str(selected.get('confidence', '')))}</strong></div>
@@ -766,6 +722,53 @@ def trend_radar(snapshot: dict) -> None:
         st.caption(
             "Evidence quality penalises duplicated, promotional and author-dominated conversation. "
             "A component that was not collected stays explicitly missing; the app never converts it to zero."
+        )
+
+    publisher_evidence = list(selected.get("commercial_evidence") or [])
+    if publisher_evidence:
+        section_header(
+            "Publisher evidence",
+            "The exact pages that explicitly named this trend",
+        )
+        evidence_table = pd.DataFrame(
+            [
+                {
+                    "Publisher": row.get("publisher"),
+                    "Explicit label": row.get("explicit_label"),
+                    "Article / report": row.get("article_title"),
+                    "Published": (
+                        str(row.get("published_at") or "")[:10]
+                        or "Date not exposed"
+                    ),
+                    "Evidence type": row.get("evidence_kind"),
+                    "Source": row.get("url"),
+                }
+                for row in publisher_evidence
+            ]
+        )
+        st.dataframe(
+            evidence_table,
+            hide_index=True,
+            width="stretch",
+            column_config={
+                "Source": st.column_config.LinkColumn("Source page"),
+            },
+        )
+        st.caption(
+            "A page counts only when its title or a trend-labelled heading names "
+            "the trend. Ordinary body text is never counted."
+        )
+
+    if selected.get("instagram_hashtag"):
+        st.caption(
+            f"Instagram comparison: #{selected.get('instagram_hashtag')} has "
+            f"{int(selected.get('instagram_posts_count') or 0):,} public uses"
+            + (
+                f" and about {float(selected.get('instagram_posts_per_day') or 0):,.0f} posts/day."
+                if selected.get("instagram_posts_per_day")
+                else "."
+            )
+            + " This is directional metadata, not proof that the hashtag caused demand."
         )
 
 
@@ -1359,17 +1362,31 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
             ),
         ),
         (
-            "Instagram panel",
+            "Commercial websites",
             str(
                 status.get(
-                    "instagram",
+                    "commercial_websites",
+                    "ready on refresh"
+                    if settings.commercial_sources_enabled
+                    else "not configured",
+                )
+            ),
+            (
+                f"{len(COMMERCIAL_SOURCES)} approved publishers · public titles, headings, dates and URLs"
+            ),
+        ),
+        (
+            "Instagram hashtags",
+            str(
+                status.get(
+                    "instagram_hashtags",
                     "configured"
                     if settings.instagram_configured
                     else "not configured",
                 )
             ),
             (
-                f"{len(settings.instagram_accounts)} approved profiles · "
+                f"Aggregate metrics for up to {settings.instagram_hashtag_max_terms} qualified trends · "
                 f"Credentials: {'added' if settings.instagram_configured else 'missing'}"
             ),
         ),
@@ -1442,6 +1459,7 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
         shopify_configured=settings.shopify_configured,
         openrouter_configured=settings.openrouter_configured,
         instagram_configured=settings.instagram_configured,
+        commercial_configured=settings.commercial_sources_enabled,
         supabase_configured=settings.supabase_configured,
         gemini_configured=settings.gemini_configured,
     )
@@ -1457,6 +1475,7 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
         google_provider=settings.google_provider,
         google_geo=settings.google_geo,
         instagram_configured=settings.instagram_configured,
+        commercial_configured=settings.commercial_sources_enabled,
         supabase_configured=settings.supabase_configured,
         gemini_configured=settings.gemini_configured,
     )
@@ -1569,29 +1588,62 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
 
     section_header(
         "Commercial signal hierarchy",
-        "The five sources with the strongest influence on HULA decisions",
+        "The approved publisher and report panel",
     )
     st.dataframe(
         pd.DataFrame(
             [
                 {
-                    "Priority source": source["name"],
-                    "Account": source["handle"],
-                    "Why HULA uses it": source["role"],
-                    "Current route": source["route"],
+                    "Publisher": source.name,
+                    "Weight": f"{source.weight:.0f}×",
+                    "Route": source.index_urls[0],
+                    "Evidence": (
+                        "Named runway taxonomy"
+                        if source.kind == "taxonomy"
+                        else "Article/report title + trend-labelled headings"
+                    ),
                 }
-                for source in PRIORITY_COMMERCIAL_SOURCES
+                for source in COMMERCIAL_SOURCES
             ]
         ),
         hide_index=True,
         width="stretch",
+        column_config={"Route": st.column_config.LinkColumn("Public source")},
     )
     st.caption(
-        "The automated Instagram panel applies a 3× evidence multiplier to Data But "
-        "Make It Fashion, Tagwalk, Who What Wear, Who What Wear UK and Lyst, and a 2× "
-        "multiplier to the approved specialist panel. Who What Wear, Who What Wear UK "
-        "and Lyst are also monitored on X; one publisher is counted once per trend."
+        "Tagwalk, Trendalytics, Heuritech, Data But Make It Fashion and Lyst carry "
+        "the higher authority weight. Who What Wear, Who What Wear UK, Vogue and "
+        "ELLE provide commercial/editorial confirmation. A source counts only when "
+        "its title or a trend-labelled heading explicitly names the trend."
     )
+    publisher_status = (
+        (meta.get("commercial_collection") or {}).get("source_status") or {}
+    )
+    if publisher_status:
+        st.dataframe(
+            pd.DataFrame(
+                [
+                    {
+                        "Publisher": row.get("publisher") or key,
+                        "Last refresh": row.get("state") or "Unknown",
+                        "Index pages": (
+                            f"{int(row.get('pages_loaded') or 0)}/"
+                            f"{int(row.get('pages_requested') or 0)}"
+                        ),
+                        "Articles loaded": int(row.get("articles_loaded") or 0),
+                        "Explicit evidence": int(row.get("evidence_rows") or 0),
+                        "First error": str((row.get("errors") or [""])[0]),
+                    }
+                    for key, row in publisher_status.items()
+                ]
+            ),
+            hide_index=True,
+            width="stretch",
+        )
+        st.caption(
+            "A failed source is isolated. Evidence from the remaining publishers "
+            "is retained and the commercial weight is renormalised."
+        )
 
     section_header(
         "X listening design",
@@ -1625,9 +1677,8 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
     st.write(
         "The app runs each topic against a **current seven-day window** and a separate "
         "**previous seven-day window**. Hashtags are accepted when they occur naturally, but the "
-        "search does not depend on hashtags or profiles alone. The commercial-priority accounts "
-        "receive 3× the evidence weight of supporting fashion sources, but cross-source "
-        "confirmation is still required."
+        "search does not depend on hashtags or profiles alone. X remains open-conversation "
+        "context; commercial authority now comes from the approved public websites and reports."
     )
     plan_table = pd.DataFrame(
         [
@@ -1635,9 +1686,9 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
                 "Search": row.get("group_label"),
                 "Window": row.get("window_label"),
                 "Role": (
-                    "Priority commercial confirmation"
+                    "Publisher-account context"
                     if row.get("expert_tier") == "commercial-priority"
-                    else "Supporting confirmation"
+                    else "Supporting source context"
                     if row.get("is_expert")
                     else "Open discovery"
                 ),
@@ -1672,7 +1723,8 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
     section_header("Trend quality filter", "Fashion signals in; unrelated noise out")
     st.write(
         "The app rejects category-only labels before they reach the landing page, radar, product matching or Qwen. "
-        "A descriptor plus a product stays valid: **black bags** and **red trousers** pass; **bags** and **trousers** do not."
+        "**Pants, skirt, flats and polka** fail; **capri pants, pencil skirt, ballet flats and polka dots** pass. "
+        "The approved standalone exceptions are **jeans, loafers and sandals**. A trusted report may also explicitly introduce a colour, material or aesthetic such as burgundy, suede or boho chic."
     )
     filtered_rows = list(meta.get("filtered_terms") or [])
     if filtered_rows:
@@ -1698,8 +1750,8 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
     ):
         st.write(", ".join(permanent_blocklist))
         st.caption(
-            "These words are blocked only when they appear alone or as an entirely generic phrase. "
-            "Adding a meaningful colour, material, shape, era or aesthetic makes the term eligible again."
+            "These words are blocked when they appear alone or as an entirely generic phrase. "
+            "Specific combinations remain eligible, subject to the source-aware specificity gate."
         )
 
     section_header("Product catalogue", "Choose CSV upload or the live Shopify API")
@@ -1943,15 +1995,47 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
                 str(openrouter_test.get("detail", "No diagnostic detail was returned."))
             )
 
-    platform_tests = st.columns(3)
+    platform_tests = st.columns(4)
     with platform_tests[0]:
         if st.button(
-            "Test Instagram Actor",
+            "Test publisher pages",
+            disabled=not settings.commercial_sources_enabled,
+            width="stretch",
+        ):
+            try:
+                result = CommercialSourceCollector(
+                    timeout_seconds=settings.commercial_timeout_seconds,
+                    max_workers=settings.commercial_max_workers,
+                ).test_connection()
+                ok = bool(result.get("ok"))
+                st.session_state.commercial_test_result = {
+                    "ok": ok,
+                    "detail": (
+                        f"{int(result.get('publishers_live') or 0)} live, "
+                        f"{int(result.get('publishers_partial') or 0)} partial and "
+                        f"{int(result.get('publishers_failed') or 0)} failed publishers."
+                    ),
+                }
+            except Exception as exc:
+                st.session_state.commercial_test_result = {
+                    "ok": False,
+                    "detail": safe_error(exc),
+                }
+        commercial_test = st.session_state.get("commercial_test_result")
+        if isinstance(commercial_test, dict):
+            (st.success if commercial_test.get("ok") else st.error)(
+                str(commercial_test.get("detail", "No diagnostic detail was returned."))
+            )
+        st.caption("Tests all approved public sources independently; no API key is required.")
+
+    with platform_tests[1]:
+        if st.button(
+            "Test hashtag Actor",
             disabled=not settings.instagram_configured,
             width="stretch",
         ):
             try:
-                result = ApifyInstagramConnector(
+                result = InstagramHashtagAnalyticsConnector(
                     settings.apify_token,
                     actor_id=settings.apify_instagram_actor_id,
                     timeout_seconds=settings.apify_timeout_seconds,
@@ -1961,8 +2045,7 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
                     "ok": True,
                     "detail": (
                         f"Actor available: {result.get('actor_username')}/"
-                        f"{result.get('actor_name')} · "
-                        f"{len(settings.instagram_accounts)} approved profiles."
+                        f"{result.get('actor_name')} · aggregate metadata mode."
                     ),
                 }
             except Exception as exc:
@@ -1975,9 +2058,9 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
             (st.success if instagram_test.get("ok") else st.error)(
                 str(instagram_test.get("detail", "No diagnostic detail was returned."))
             )
-        st.caption("Checks the maintained Instagram Post Scraper without starting a paid run.")
+        st.caption("Checks the aggregate hashtag-analytics Actor without starting a paid run.")
 
-    with platform_tests[1]:
+    with platform_tests[2]:
         if st.button(
             "Test Supabase history",
             disabled=not settings.supabase_configured,
@@ -2009,7 +2092,7 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
             )
         st.caption("If the tables are missing, run supabase/schema.sql once.")
 
-    with platform_tests[2]:
+    with platform_tests[3]:
         if st.button(
             "Test Gemini research",
             disabled=not settings.gemini_configured,
@@ -2037,6 +2120,11 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
             (st.success if gemini_test.get("ok") else st.error)(
                 str(gemini_test.get("detail", "No diagnostic detail was returned."))
             )
+        st.caption(
+            "Checks Gemini text generation and JSON output. The live Google "
+            "Search grounding used by researched blogs additionally requires "
+            "a billing-enabled Gemini project."
+        )
 
     section_header("Live refresh", "Run the full evidence pipeline")
     include_llm = st.checkbox("Use Qwen to label and enrich trends", value=settings.openrouter_configured)
@@ -2133,6 +2221,7 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
                 updated_meta["generated_at"] = datetime.now(tz=timezone.utc).isoformat()
                 updated_meta["mode"] = "hybrid"
                 updated_meta["source_status"] = {**updated_meta.get("source_status", {}), "google_trends": "manual CSV"}
+                updated_meta["google_display_schema_version"] = "2.0"
                 updated_snapshot["meta"] = updated_meta
                 save_snapshot(updated_snapshot, settings.snapshot_path)
                 st.session_state.snapshot = updated_snapshot
@@ -2146,8 +2235,8 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
     for column, number, title, copy in [
         (signal_method[0], "35%", "Google Trends worldwide", "Global search-demand momentum."),
         (signal_method[1], "20%", "Open X topics", "Independent-author and post growth across broad topic searches."),
-        (signal_method[2], "35%", "Commercial source panel", "Priority confirmation across approved Instagram and X publishers."),
-        (signal_method[3], "10%", "Instagram visual validation", "Fresh carousel, reel and image evidence from the approved panel."),
+        (signal_method[2], "35%", "Commercial reports", "Explicit trend names in approved website/report titles and headings."),
+        (signal_method[3], "10%", "Instagram hashtags", "Aggregate reach and posts/day for already-qualified trend hashtags."),
     ]:
         with column:
             st.metric(title, number)
@@ -2170,7 +2259,7 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
             st.metric(title, number)
             st.caption(copy)
     st.markdown(
-        '<div class="method-note"><strong>Data minimisation:</strong> raw X and Instagram posts are held only during the refresh. Publisher identifiers are one-way hashed for breadth counts, then discarded; the snapshot stores aggregates and accepted evidence URLs only. Public Instagram image URLs are sent to Qwen only for the capped visual-reading pass and are not retained in the aggregate snapshot. A product CSV is normalised into product fields and the raw upload is not retained separately. The API requests read-only Shopify scopes and does not read customers, orders or payment data. Gemini receives only public trend and selected-product information.</div>',
+        '<div class="method-note"><strong>Data minimisation:</strong> raw X posts are held only during the refresh, then discarded. Commercial evidence keeps only public article/report titles, explicit trend-labelled headings, dates and URLs. Instagram requests aggregate hashtag metadata with top/latest post collection disabled—no captions, accounts or images enter the app. A product CSV is normalised into product fields and the raw upload is not retained separately. Shopify access is read-only and excludes customers, orders and payments. Gemini receives only public trend and selected-product information.</div>',
         unsafe_allow_html=True,
     )
     warnings = meta.get("warnings", [])

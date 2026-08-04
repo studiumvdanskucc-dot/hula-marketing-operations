@@ -1,46 +1,46 @@
-# Approved Instagram fashion panel
+# Aggregate Instagram hashtag comparison
 
-The app uses Apify's maintained `apify/instagram-post-scraper` Actor with the
-same `APIFY_TOKEN` used by the X connector. The approved public profiles do not
-require a separate Instagram login.
+Instagram is a small, directional validation component—not a discovery source.
+The app uses Apify's maintained
+`apify/instagram-hashtag-analytics-scraper` with the same `APIFY_TOKEN` used by
+X. It does not require an Instagram login.
 
-## Default panel
+The app first qualifies specific trend names through approved commercial
+websites, X and Google. It then converts up to eight qualified names into
+hashtags and retrieves only:
 
-Priority, 3× evidence weight:
+- total public uses;
+- estimated posts per day when available;
+- aggregate related-hashtag counts.
 
-- `databutmakeitfashion`
-- `tagwalk`
-- `whowhatwear`
-- `whowhatwear.uk`
-- `lyst`
-
-Specialist, 2× evidence weight:
-
-- `voguerunway`
-- `wgsn`
-- `trendalytics`
-- `edited_hq`
-- `heuritech`
+Top and latest post collection are explicitly disabled. The pipeline never
+receives Instagram captions, usernames, accounts, images or videos.
 
 ## Settings
 
 ```toml
 INSTAGRAM_ENABLED = "true"
-APIFY_INSTAGRAM_ACTOR_ID = "apify~instagram-post-scraper"
-INSTAGRAM_RESULTS_PER_PROFILE = "15"
-INSTAGRAM_MAX_TOTAL_CHARGE_USD = "0.75"
-INSTAGRAM_VISUAL_MAX_POSTS = "10"
-INSTAGRAM_PRIORITY_ACCOUNTS = "databutmakeitfashion,tagwalk,whowhatwear,whowhatwear.uk,lyst"
-INSTAGRAM_SPECIALIST_ACCOUNTS = "voguerunway,wgsn,trendalytics,edited_hq,heuritech"
+APIFY_INSTAGRAM_ACTOR_ID = "apify~instagram-hashtag-analytics-scraper"
+INSTAGRAM_HASHTAG_MAX_TERMS = "8"
+INSTAGRAM_MAX_TOTAL_CHARGE_USD = "0.25"
 ```
 
-The Actor input skips pinned posts, requests only posts newer than the
-fourteen-day cutoff and limits results per profile. The app validates every
-timestamp again, removes duplicates and reports profiles with no accepted
-results. Start with these caps and inspect real Apify usage before increasing
-them.
+The Actor input always includes:
 
-Use **Data & Setup → Test Instagram Actor** to verify the Actor without
-starting a paid scrape.
+```json
+{
+  "includeLatestPosts": false,
+  "includeTopPosts": false
+}
+```
 
-Official Actor page: <https://apify.com/apify/instagram-post-scraper>
+The score compares hashtags within the same refresh. Posts per day carries the
+most weight when available; otherwise the log-scaled lifetime count is used.
+This is descriptive metadata. It does not prove that a hashtag caused reach,
+sales or search demand.
+
+Use **Data & Setup → Test hashtag Actor** to verify access without starting a
+paid run.
+
+Official Actor page:
+<https://apify.com/apify/instagram-hashtag-analytics-scraper>

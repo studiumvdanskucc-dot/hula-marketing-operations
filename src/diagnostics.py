@@ -7,7 +7,8 @@ from typing import Any, Iterable
 SOURCE_NAMES = {
     "google_trends": "Google Trends",
     "x_apify": "X via Apify",
-    "instagram": "Instagram panel",
+    "commercial_websites": "Commercial websites & reports",
+    "instagram_hashtags": "Instagram hashtag metadata",
     "shopify": "Product catalogue",
     "openrouter": "OpenRouter / Qwen",
     "supabase": "Supabase history",
@@ -44,7 +45,8 @@ def hybrid_explanation(meta: dict[str, Any]) -> str:
     for key in (
         "google_trends",
         "x_apify",
-        "instagram",
+        "commercial_websites",
+        "instagram_hashtags",
         "openrouter",
         "supabase",
         "gemini",
@@ -117,8 +119,10 @@ def _action_for(
             return "Credentials are loaded now; run its connection test or a refresh to update this older status."
         if source == "google_trends":
             return "Add SERPAPI_API_KEY in Streamlit Secrets, restart the app, then run the Google Trends test."
-        if source == "instagram":
-            return "Add APIFY_TOKEN; the maintained Instagram Actor does not require a separate saved task."
+        if source == "commercial_websites":
+            return "No API key is required. Retry the refresh; each publisher fails independently."
+        if source == "instagram_hashtags":
+            return "Add APIFY_TOKEN; the aggregate hashtag Actor does not require a separate saved task."
         if source == "supabase":
             return "Add SUPABASE_URL and SUPABASE_SECRET_KEY, then run supabase/schema.sql once."
         if source == "gemini":
@@ -139,6 +143,7 @@ def source_diagnostic_rows(
     shopify_configured: bool,
     openrouter_configured: bool,
     instagram_configured: bool = False,
+    commercial_configured: bool = True,
     supabase_configured: bool = False,
     gemini_configured: bool = False,
 ) -> list[dict[str, str]]:
@@ -147,7 +152,8 @@ def source_diagnostic_rows(
     configured = {
         "google_trends": google_configured,
         "x_apify": apify_configured,
-        "instagram": instagram_configured,
+        "commercial_websites": commercial_configured,
+        "instagram_hashtags": instagram_configured,
         "shopify": catalogue_source == "csv" or shopify_configured,
         "openrouter": openrouter_configured,
         "supabase": supabase_configured,
@@ -157,7 +163,8 @@ def source_diagnostic_rows(
     for source in (
         "google_trends",
         "x_apify",
-        "instagram",
+        "commercial_websites",
+        "instagram_hashtags",
         "shopify",
         "openrouter",
         "supabase",
@@ -192,6 +199,7 @@ def diagnostic_report(
     google_provider: str = "auto",
     google_geo: str = "WORLDWIDE",
     instagram_configured: bool = False,
+    commercial_configured: bool = True,
     supabase_configured: bool = False,
     gemini_configured: bool = False,
 ) -> dict[str, Any]:
@@ -205,7 +213,8 @@ def diagnostic_report(
         "configuration_loaded": {
             "google_trends": google_configured,
             "apify": apify_configured,
-            "instagram": instagram_configured,
+            "commercial_websites": commercial_configured,
+            "instagram_hashtags": instagram_configured,
             "shopify_api": shopify_configured,
             "openrouter": openrouter_configured,
             "openrouter_model": openrouter_model,
@@ -218,10 +227,11 @@ def diagnostic_report(
         "last_refresh_source_status": meta.get("source_status") or {},
         "last_refresh_counts": meta.get("raw_counts") or {},
         "x_listening_summary": meta.get("x_listening") or {},
-        "instagram_collection_summary": meta.get("instagram_collection") or {},
+        "commercial_collection_summary": meta.get("commercial_collection") or {},
+        "instagram_hashtag_summary": meta.get("instagram_hashtag_collection") or {},
         "last_refresh_notes": meta.get("warnings") or [],
         "privacy": (
-            "No API keys, tokens, passwords, client secrets or raw X/Instagram "
-            "posts are included."
+            "No API keys, tokens, passwords, client secrets, raw X posts or "
+            "Instagram posts are included."
         ),
     }

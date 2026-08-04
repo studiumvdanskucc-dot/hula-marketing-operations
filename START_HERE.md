@@ -1,6 +1,6 @@
 # Start HULA Trend Intelligence
 
-This is build **2026.07.28.1**.
+This is build **2026.08.03.1**.
 
 ## Before the first refresh
 
@@ -25,20 +25,22 @@ cp .env.example .env
 python -m streamlit run app.py
 ```
 
-Open <http://localhost:8501>, confirm **Build 2026.07.28.1**, then open
+Open <http://localhost:8501>, confirm **Build 2026.08.03.1**, then open
 **Data & Setup** and run:
 
 1. Test Google Trends (Worldwide)
 2. Test Apify task
-3. Test Instagram Actor
-4. Test OpenRouter
-5. Test Supabase history
-6. Test Gemini research
-7. Upload/apply the HULA catalogue CSV if Shopify API is not being used
-8. Run the full refresh
+3. Test OpenRouter
+4. Test publisher pages
+5. Test hashtag Actor
+6. Test Supabase history
+7. Test Gemini research
+8. Upload/apply the HULA catalogue CSV if Shopify API is not being used
+9. Run the full refresh
 
-The first refresh collects the latest fourteen-day X and Instagram windows,
-discovers fresh Google queries, validates the candidates and can generate the
-Wednesday blog. A CSV catalogue correctly keeps the dataset in Hybrid Mode.
+The first refresh collects the latest fourteen-day X window and explicit trend
+evidence from the approved publisher pages, validates specific candidates with
+Google, compares qualified hashtags on Instagram and can generate the Wednesday
+blog. A CSV catalogue correctly keeps the dataset in Hybrid Mode.
 
 For deployment, follow [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
