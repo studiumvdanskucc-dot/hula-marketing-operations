@@ -44,6 +44,23 @@ def test_normalization_keeps_aggregate_metadata_only() -> None:
     assert "caption" not in str(metric)
 
 
+def test_normalization_accepts_actor_search_term_output() -> None:
+    metric = normalize_hashtag_metric(
+        {
+            "searchTerm": "#BalletFlats",
+            "postsCount": "75.83 k",
+            "postsPerDay": 31,
+        },
+        trend_by_hashtag={
+            "balletflats": {"id": "ballet-flats", "name": "Ballet Flats"}
+        },
+    )
+    assert metric is not None
+    assert metric["hashtag"] == "balletflats"
+    assert metric["posts_count"] == 75_830
+    assert metric["posts_per_day"] == 31
+
+
 def test_hashtag_scores_are_directional_comparisons() -> None:
     rows = score_hashtag_metrics(
         [

@@ -47,9 +47,11 @@ duplicates, low author coverage and excessive concentration in one author.
 
 The commercial collector reads public pages from Tagwalk, Trendalytics,
 Heuritech, Who What Wear, Who What Wear UK, Data But Make It Fashion, Vogue,
-ELLE and the Lyst Index. A source counts only when an article/report title,
-trend-labelled heading or Tagwalk taxonomy explicitly names the trend.
-Ordinary body text is excluded.
+ELLE and the Lyst Index. Source-specific pages, publisher feeds and sitemaps are
+used first; a domain-restricted SerpApi search is the fallback. A source counts
+only when a publisher title, selected editorial trend heading, Tagwalk
+taxonomy, Lyst ranked product or explicit quantified data statement names the
+trend. Ordinary unlabelled body text and shopping product cards are excluded.
 
 The component combines unique-publisher breadth, authority weight and recency.
 Tagwalk, Trendalytics, Heuritech, Data But Make It Fashion and Lyst receive the

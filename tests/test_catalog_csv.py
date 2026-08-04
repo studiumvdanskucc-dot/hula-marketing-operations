@@ -146,7 +146,7 @@ def test_repeated_refresh_reuses_fresh_google_cache(tmp_path, monkeypatch) -> No
                 "catalogue_warnings": [],
             },
                 "google_cache": {
-                    "schema_version": "2.0",
+                    "schema_version": "3.0",
                     "collected_at": datetime.now(tz=timezone.utc).isoformat(),
                 "market": "WORLDWIDE",
                 "context_timeframe": "today 1-m",

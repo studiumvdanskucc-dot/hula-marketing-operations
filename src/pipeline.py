@@ -47,6 +47,8 @@ DISCOVERY_SEEDS = [
     "vintage fashion trends",
 ]
 
+GOOGLE_CACHE_SCHEMA_VERSION = "3.0"
+
 
 def _openrouter(settings: Settings) -> OpenRouterConnector:
     return OpenRouterConnector(
@@ -84,7 +86,7 @@ def _cache_state(
 ) -> tuple[dict[str, Any], float | None]:
     cache = dict((snapshot or {}).get("google_cache") or {})
     compatible = (
-        str(cache.get("schema_version") or "") == "2.0"
+        str(cache.get("schema_version") or "") == GOOGLE_CACHE_SCHEMA_VERSION
         and
         str(cache.get("market") or "").upper() == settings.google_geo.upper()
         and str(cache.get("context_timeframe") or "") == settings.google_timeframe
@@ -206,6 +208,8 @@ def _collect_commercial_sources(
         result = CommercialSourceCollector(
             timeout_seconds=settings.commercial_timeout_seconds,
             max_workers=settings.commercial_max_workers,
+            serpapi_api_key=settings.serpapi_api_key,
+            serpapi_endpoint=settings.serpapi_endpoint,
         ).collect()
         evidence = list(result.pop("evidence", []))
         rows = score_commercial_evidence(evidence)
@@ -216,16 +220,24 @@ def _collect_commercial_sources(
         if not live and not partial:
             state = "FAILED"
         for key, detail in (result.get("source_status") or {}).items():
-            if str(detail.get("state") or "") == "FAILED":
+            if str(detail.get("state") or "") in {"FAILED", "PARTIAL"} and not int(
+                detail.get("named_trends") or 0
+            ):
                 errors = detail.get("errors") or []
                 warnings.append(
                     f"Commercial source {detail.get('publisher') or key}: "
-                    + (str(errors[0]) if errors else "no usable response")
+                    + (
+                        str(errors[0])
+                        if errors
+                        else "the page loaded but yielded no explicit named trends"
+                    )
                 )
         status = _status(
             state,
             f"{live + partial}/{int(result.get('publishers_requested') or 0)} publishers"
-            f" · {len(evidence)} explicit evidence rows",
+            f" · {int(result.get('publishers_with_evidence') or 0)} with named evidence"
+            f" · {int(result.get('named_trends') or 0)} named trends"
+            f" · {len(evidence)} evidence rows",
         )
         return evidence, rows, result, status
     except Exception as exc:
@@ -243,6 +255,9 @@ def _collect_instagram_hashtags(
         "hashtags_returned": [],
         "missing_hashtags": [],
         "items_returned": 0,
+        "items_normalized": 0,
+        "unmatched_items": 0,
+        "returned_fields": [],
         "usage_usd": None,
         "privacy_mode": "aggregate metadata; top/latest posts disabled",
     }
@@ -271,9 +286,16 @@ def _collect_instagram_hashtags(
                 "Instagram hashtag metadata missing for: "
                 + ", ".join(result["missing_hashtags"])
             )
+        if int(result.get("items_returned") or 0) and not rows:
+            warnings.append(
+                "Instagram returned aggregate dataset rows, but none matched the requested "
+                "hashtags. Returned field names: "
+                + ", ".join(result.get("returned_fields") or ["not reported"])
+            )
         return rows, summary, _status(
             state,
-            f"{returned}/{requested} aggregate hashtags",
+            f"{returned}/{requested} aggregate hashtags"
+            f" · {int(result.get('items_returned') or 0)} dataset rows",
         )
     except Exception as exc:
         warnings.append(f"Instagram hashtag metadata: {exc}")
@@ -465,8 +487,20 @@ def _collect_google(
             filtered_terms=filtered_terms,
             source="Google validation candidate",
         )
+        # Reserve space for both publisher discoveries and open/social signals.
+        # Previously commercial candidates could consume the entire validation
+        # budget (or vice versa), leaving most discovered trends invisible.
+        commercial_quota = max(1, round(settings.google_max_terms * 0.67))
+        supporting_quota = max(1, settings.google_max_terms - commercial_quota)
         candidates = list(
-            dict.fromkeys([*commercial_terms, *supporting_terms])
+            dict.fromkeys(
+                [
+                    *commercial_terms[:commercial_quota],
+                    *supporting_terms[:supporting_quota],
+                    *commercial_terms[commercial_quota:],
+                    *supporting_terms[supporting_quota:],
+                ]
+            )
         )[: settings.google_max_terms]
         try:
             context_result = context.collect(candidates, discovery_seeds=[])
@@ -533,7 +567,7 @@ def _collect_google(
                 ),
             )
             cache_out = {
-                "schema_version": "2.0",
+                "schema_version": GOOGLE_CACHE_SCHEMA_VERSION,
                 "collected_at": datetime.now(tz=timezone.utc).isoformat(),
                 "market": settings.google_geo,
                 "context_timeframe": settings.google_timeframe,
@@ -1004,6 +1038,7 @@ def refresh_snapshot(
             "x_listening": x_collection,
             "commercial_collection": commercial_collection,
             "commercial_evidence": commercial_evidence,
+            "commercial_discoveries": commercial_rows,
             "instagram_hashtag_collection": instagram_collection,
             "combined_social_freshness": {
                 **combined_freshness,
@@ -1015,6 +1050,9 @@ def refresh_snapshot(
                 "x_posts_accepted": len(x_posts),
                 "commercial_evidence_rows": len(commercial_evidence),
                 "commercial_trends": len(commercial_rows),
+                "commercial_named_trends": int(
+                    commercial_collection.get("named_trends") or 0
+                ),
                 "commercial_publishers_live": int(
                     commercial_collection.get("publishers_live") or 0
                 ),
@@ -1033,7 +1071,7 @@ def refresh_snapshot(
                 "recommendations": len(recommendations),
             },
             "warnings": warnings,
-            "methodology_version": "0.6",
+            "methodology_version": "0.7",
             "quality_filter_version": "4.0",
             "google_display_schema_version": "2.0",
             "privacy": (

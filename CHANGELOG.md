@@ -1,5 +1,26 @@
 # Changelog
 
+## Build 2026.08.04.1 — Layered Publisher Discovery
+
+- Fixed the publisher collector that previously reported a loaded page as a
+  successful source even when it extracted zero named trends.
+- Added source-specific extraction plus publisher RSS, news sitemaps, current
+  report routes and a domain-restricted SerpApi fallback for blocked or
+  JavaScript-heavy pages. All nine approved sites are attempted independently.
+- Added a visible publisher inventory containing every explicitly sourced
+  trend and its page link. The smaller action list remains separate and still
+  requires fresh cross-source validation.
+- Expanded Google validation from 12 to 24 candidates with reserved capacity
+  for both publisher and open/social signals. Cache schema 3.0 forces the first
+  refresh to replace the previous narrow cache.
+- Fixed Instagram aggregate rows whose Actor identifies the requested hashtag
+  with `searchTerm`, and added field-level mismatch diagnostics without storing
+  captions, accounts, images or posts.
+- Publisher tests now report named-trend and evidence-row counts per site, so a
+  page that merely returns HTTP 200 can no longer look healthy.
+- Added live-structure regression fixtures for Who What Wear, Vogue, feeds and
+  sitemaps. All 85 offline tests pass.
+
 ## Build 2026.08.03.1 — Publisher Evidence & Trustworthy Charts
 
 - Replaced Instagram profile/post scraping with aggregate hashtag analytics for

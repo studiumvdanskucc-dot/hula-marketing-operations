@@ -78,7 +78,7 @@ def test_catalogue_widget_state_is_never_assigned_directly() -> None:
 
 def test_repaired_build_is_visible_in_sidebar() -> None:
     app = AppTest.from_file("app.py", default_timeout=30).run()
-    assert any("Build 2026.08.03.1" in caption.value for caption in app.sidebar.caption)
+    assert any("Build 2026.08.04.1" in caption.value for caption in app.sidebar.caption)
 
 
 def test_data_setup_shows_safe_diagnostics() -> None:

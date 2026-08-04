@@ -40,7 +40,12 @@ This is descriptive metadata. It does not prove that a hashtag caused reach,
 sales or search demand.
 
 Use **Data & Setup → Test hashtag Actor** to verify access without starting a
-paid run.
+paid run. That button checks Actor availability only. The full refresh records
+requested hashtags, returned aggregate dataset rows, normalised hashtags,
+missing hashtags and the returned top-level field names. Build 2026.08.04.1
+accepts the Actor's `searchTerm` field as well as `name`, `id` and `hashtag`, so
+a valid dataset row is no longer silently discarded because of its identifier
+field.
 
 Official Actor page:
 <https://apify.com/apify/instagram-hashtag-analytics-scraper>

@@ -1,6 +1,6 @@
 # Google Trends through SerpApi
 
-Build `2026.08.03.1` uses worldwide Google Trends through SerpApi.
+Build `2026.08.04.1` uses worldwide Google Trends through SerpApi.
 SerpApi makes the Google-facing request and returns structured Trends data, so
 the Streamlit app does not launch another Actor and does not connect to
 `trends.google.com` directly.
@@ -44,9 +44,11 @@ searches. A compatible last-good result can be displayed for three days if a
 later API call fails, but anything older than 24 hours is labelled stale and
 cannot enter the decision list.
 
-The current SerpApi free plan includes 250 searches per month. A weekly refresh
-uses about 20 searches per month; even one full refresh every day remains below
-the current free allowance.
+With 24 candidates, each one-month or seven-day pass uses up to six comparison
+requests, plus bounded related-query discovery. Publisher collection can add a
+domain-restricted fallback request for a source that produced too little
+evidence. The exact request count is saved in diagnostics; check the SerpApi
+dashboard against the allowance of the plan you currently use.
 
 ## Settings
 
@@ -59,7 +61,7 @@ GOOGLE_TRENDS_PROVIDER = "auto"
 GOOGLE_TRENDS_GEO = "WORLDWIDE"
 GOOGLE_TRENDS_TIMEFRAME = "today 1-m"
 GOOGLE_TRENDS_DISCOVERY_TIMEFRAME = "now 7-d"
-GOOGLE_TRENDS_MAX_TERMS = "12"
+GOOGLE_TRENDS_MAX_TERMS = "24"
 GOOGLE_TRENDS_MAX_DISCOVERY_SEEDS = "2"
 GOOGLE_TRENDS_CACHE_HOURS = "24"
 GOOGLE_TRENDS_STALE_CACHE_DAYS = "3"
@@ -81,6 +83,8 @@ message must say:
 
 The full refresh status and safe diagnostic report also record the provider,
 market, term count, request count and cache age without including the API key.
+Build 2026.08.04.1 uses Google cache schema 3.0, so the first refresh ignores
+the old 12-term cache and collects the expanded candidate set.
 The plotted line is always Google's original 0–100 index. Anchor-calibrated
 values are retained only for internal cross-query ranking. Low-resolution,
 plateau-heavy, isolated-spike, out-of-range and legacy calibrated-only series

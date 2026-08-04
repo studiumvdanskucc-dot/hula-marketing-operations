@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 import re
 import statistics
+import unicodedata
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable
@@ -35,6 +36,31 @@ CANONICAL_PHRASES = {
     "buttery yellow": "Butter Yellow",
     "polka dot": "Polka Dots",
     "polka dots": "Polka Dots",
+    "dots": "Polka Dots",
+    "dots dots dots": "Polka Dots",
+    "pencil skirt": "Pencil Skirt",
+    "pencil skirts": "Pencil Skirt",
+    "raw authenticity in brut denim": "Raw Denim",
+    "variations of checked": "Checks",
+    "slipping into moccasins": "Loafers",
+    "creamy yellow": "Creamy Yellow",
+    "purple hues": "Purple",
+    "ruffle": "Ruffles",
+    "ruffles": "Ruffles",
+    "bubble hem": "Bubble-Hem",
+    "bubble hems": "Bubble-Hem",
+    "florals": "Floral",
+    "cherry red": "Cherry Red",
+    "checks": "Checks",
+    "argyle": "Argyle",
+    "brooch": "Brooches",
+    "brooches": "Brooches",
+    "soft pink": "Soft Pink",
+    "royal purple": "Royal Purple",
+    "purple reign": "Purple",
+    "well suited": "Tailoring",
+    "t strap": "T-Strap Shoes",
+    "t straps": "T-Strap Shoes",
     "leopard print": "Leopard Print",
     "animal print": "Animal Print",
     "raffia bag": "Raffia Bags",
@@ -73,15 +99,60 @@ CANONICAL_PHRASES = {
     "barrel jean": "Barrel Jeans",
     "barrel jeans": "Barrel Jeans",
     "balloon jean": "Barrel Jeans",
+    "moccasin": "Loafers",
+    "moccasins": "Loafers",
     "quiet luxury": "Quiet Luxury",
     "archive fashion": "Designer Archives",
     "designer archive": "Designer Archives",
     "designer archives": "Designer Archives",
+    "slipper": "Slippers",
+    "slippers": "Slippers",
     "preowned fashion": "Pre-Owned Fashion",
     "pre owned fashion": "Pre-Owned Fashion",
     "pre loved fashion": "Pre-Owned Fashion",
     "preloved fashion": "Pre-Owned Fashion",
     "resale fashion": "Pre-Owned Fashion",
+}
+
+
+# Publisher headlines frequently use a singular product label while search and
+# social sources use the plural (``boardwalk pant`` versus ``boardwalk pants``).
+# Normalising only concrete product endings prevents those two spellings from
+# becoming separate trends without flattening materials or aesthetics.
+PRODUCT_ENDING_PLURALS = {
+    "bag": "bags",
+    "belt": "belts",
+    "blazer": "blazers",
+    "blouse": "blouses",
+    "boot": "boots",
+    "bracelet": "bracelets",
+    "cardigan": "cardigans",
+    "coat": "coats",
+    "dress": "dresses",
+    "earring": "earrings",
+    "flat": "flats",
+    "gown": "gowns",
+    "heel": "heels",
+    "jacket": "jackets",
+    "jean": "jeans",
+    "loafer": "loafers",
+    "necklace": "necklaces",
+    "pant": "pants",
+    "pump": "pumps",
+    "slipper": "slippers",
+    "sandal": "sandals",
+    "scarf": "scarves",
+    "shirt": "shirts",
+    "shoe": "shoes",
+    "skirt": "skirts",
+    "sneaker": "sneakers",
+    "sweater": "sweaters",
+    "tie": "ties",
+    "top": "tops",
+    "tote": "totes",
+    "trainer": "trainers",
+    "trouser": "trousers",
+    "vest": "vests",
 }
 
 GENERIC_STOPWORDS = {
@@ -141,7 +212,8 @@ TRUSTED_STANDALONE_ALLOWLIST = {
     "crochet", "denim", "feather", "floral", "fringe", "fringed", "fringes",
     "frill", "fur", "gray", "green", "grey", "khaki", "lace", "ladylike",
     "leather", "lingerie", "metallic", "minimal", "orange", "pink", "preppy",
-    "purple", "raffia", "red", "romantic", "satin", "sheer", "silk", "stripes",
+    "pump", "pumps", "purple", "raffia", "red", "romantic", "satin", "sheer",
+    "silk", "slipper", "slippers", "stripes",
     "suede", "tailoring", "tweed", "utility", "white", "yellow",
 }
 
@@ -173,6 +245,7 @@ FASHION_PRODUCT_TOKENS = {
     "blazer", "blazers", "blouse", "blouses", "boot", "boots", "bracelet",
     "bracelets", "cardigan", "cardigans", "clutch", "clutches", "coat",
     "coats", "corset", "corsets", "dress", "dresses", "earring", "earrings",
+    "brooch", "brooches", "cap", "caps", "sunglasses", "tights",
     "flat", "flats", "footwear", "gown", "gowns", "handbag", "handbags",
     "heel", "heels", "jacket", "jackets", "jean", "jeans", "jewellery",
     "jewelry", "loafer", "loafers", "necklace", "necklaces", "outfit",
@@ -197,7 +270,7 @@ FASHION_STYLE_TOKENS = {
     "peplum", "preppy", "print", "puff", "puffed", "raffia", "resale",
     "romantic", "ruched", "ruffle", "ruffled", "satin", "sheer", "silk",
     "stripe", "stripes", "street", "streetwear", "suede", "tailoring",
-    "transparent", "tweed", "utility", "vintage", "volume", "waist", "woven",
+    "tapestry", "transparent", "tweed", "utility", "vintage", "volume", "waist", "woven",
     "y2k",
 }
 
@@ -228,6 +301,7 @@ def slugify(value: str) -> str:
 
 
 def _clean_phrase(value: str) -> str:
+    value = unicodedata.normalize("NFKD", str(value)).encode("ascii", "ignore").decode()
     value = re.sub(r"([a-z])([A-Z])", r"\1 \2", value)
     value = value.replace("_", " ").replace("-", " ").lower()
     value = re.sub(r"[^a-z0-9\s]", " ", value)
@@ -474,6 +548,8 @@ def canonical_name(value: str) -> str:
         source_tokens = source.split()
         if len(source_tokens) >= 2 and len(phrase_tokens) >= 2 and _contains_phrase(phrase, source):
             return target
+    if phrase_tokens and phrase_tokens[-1] in PRODUCT_ENDING_PLURALS:
+        phrase_tokens[-1] = PRODUCT_ENDING_PLURALS[phrase_tokens[-1]]
     return " ".join(word.capitalize() for word in phrase_tokens)
 
 
@@ -1258,7 +1334,7 @@ def merge_trend_signals(
     *,
     commercial_rows: list[dict[str, Any]] | None = None,
     instagram_rows: list[dict[str, Any]] | None = None,
-    limit: int = 15,
+    limit: int = 80,
     audit: list[dict[str, str]] | None = None,
 ) -> list[dict[str, Any]]:
     grouped: dict[str, dict[str, Any]] = defaultdict(dict)
@@ -1433,6 +1509,7 @@ def merge_trend_signals(
             "evidence_quality": float(social.get("evidence_quality") or 0),
             "novelty_score": float(social.get("novelty_score") or 0),
             "publisher_count": publisher_count,
+            "publisher_names": list(commercial.get("publisher_names") or []),
             "commercial_article_count": int(commercial.get("article_count") or 0),
             "commercial_evidence": list(commercial.get("commercial_evidence") or []),
             "instagram_hashtag": str(instagram.get("hashtag") or ""),

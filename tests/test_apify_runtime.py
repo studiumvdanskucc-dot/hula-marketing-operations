@@ -118,7 +118,7 @@ def test_x_plan_stops_after_first_capacity_error(monkeypatch) -> None:
 def test_google_cache_is_scoped_to_market_and_timeframe() -> None:
     snapshot = {
         "google_cache": {
-            "schema_version": "2.0",
+            "schema_version": "3.0",
             "collected_at": datetime.now(tz=timezone.utc).isoformat(),
             "market": "HK",
             "context_timeframe": "today 1-m",
@@ -135,3 +135,7 @@ def test_google_cache_is_scoped_to_market_and_timeframe() -> None:
 
     wrong_market, _ = _cache_state(snapshot, Settings(google_geo="US"))
     assert wrong_market == {}
+
+    legacy = {"google_cache": {**snapshot["google_cache"], "schema_version": "2.0"}}
+    rejected_legacy, _ = _cache_state(legacy, Settings(google_geo="HK"))
+    assert rejected_legacy == {}

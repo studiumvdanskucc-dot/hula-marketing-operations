@@ -1,6 +1,6 @@
 # HULA Trend Intelligence
 
-Current build: **2026.08.03.1**.
+Current build: **2026.08.04.1**.
 
 A Streamlit workflow for finding fresh fashion signals, validating them across
 search and conversation, matching them to HULA's selected catalogue, and
@@ -9,8 +9,8 @@ turning the best opportunities into store and editorial actions.
 ## What is included
 
 - **This Week** — the strongest complete signals and best catalogue matches.
-- **Trend Radar** — Act now, Test this week or Watch, with incomplete rows
-  separated from the decision list.
+- **Trend Radar** — a complete linked publisher inventory followed by the
+  separately validated Act now, Test this week and Watch decisions.
 - **Product Match** — transparent product rankings with adjustable weights.
 - **Campaign Studio** — Qwen-powered Reel, carousel, email and store briefs.
 - **Wednesday Blog** — a 700–1,000-word Gemini draft with Google Search
@@ -64,10 +64,14 @@ The commercial component collects public evidence from:
 - ELLE
 - Lyst
 
-Only an article/report title, a trend-labelled heading, or Tagwalk's named
-runway taxonomy can introduce a trend. Ordinary article body text never
-counts. Every evidence row keeps its publisher, exact label, article title,
-publication date and public URL. Each publisher fails independently.
+The collector uses publisher pages, RSS feeds and sitemaps, then the existing
+SerpApi key as a domain-restricted fallback when a page is blocked or rendered
+only with JavaScript. An article/report title, an editorial trend heading,
+Tagwalk taxonomy, a Lyst ranked product or an explicitly quantified
+data-publisher statement can introduce a trend; ordinary unlabelled prose does
+not. Every evidence row keeps its publisher, exact label, article title,
+publication date, public URL and acquisition route. Each publisher fails
+independently.
 
 ## Instagram comparison
 
@@ -112,7 +116,7 @@ cp .env.example .env
 python -m streamlit run app.py
 ```
 
-Seeing **Build 2026.08.03.1** at the bottom of the sidebar confirms that the
+Seeing **Build 2026.08.04.1** at the bottom of the sidebar confirms that the
 correct version is running.
 
 ## Setup order
@@ -139,4 +143,4 @@ Never commit `.env`, `.streamlit/secrets.toml`, API keys or raw catalogue files.
 pytest -q
 ```
 
-The 80 tests are offline and require no real API credentials.
+The 85 tests are offline and require no real API credentials.

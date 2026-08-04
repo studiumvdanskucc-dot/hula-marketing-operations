@@ -139,8 +139,8 @@ class Settings:
     instagram_hashtag_max_terms: int = 8
     instagram_max_total_charge_usd: float = 0.25
     commercial_sources_enabled: bool = True
-    commercial_timeout_seconds: int = 15
-    commercial_max_workers: int = 6
+    commercial_timeout_seconds: int = 25
+    commercial_max_workers: int = 4
     openrouter_api_key: str = ""
     openrouter_api_url: str = "https://openrouter.ai/api/v1/chat/completions"
     openrouter_model: str = "qwen/qwen3-vl-32b-instruct"
@@ -157,7 +157,7 @@ class Settings:
     serpapi_api_key: str = ""
     serpapi_endpoint: str = "https://serpapi.com/search.json"
     serpapi_timeout_seconds: int = 75
-    google_max_terms: int = 12
+    google_max_terms: int = 24
     google_max_discovery_seeds: int = 2
     google_related_validation_terms: int = 4
     google_cache_hours: int = 24
@@ -269,10 +269,10 @@ def load_settings() -> Settings:
             setting("COMMERCIAL_SOURCES_ENABLED", True), True
         ),
         commercial_timeout_seconds=as_int(
-            setting("COMMERCIAL_TIMEOUT_SECONDS", 15), 15
+            setting("COMMERCIAL_TIMEOUT_SECONDS", 25), 25
         ),
         commercial_max_workers=as_int(
-            setting("COMMERCIAL_MAX_WORKERS", 6), 6
+            setting("COMMERCIAL_MAX_WORKERS", 4), 4
         ),
         openrouter_api_key=str(setting("OPENROUTER_API_KEY", "")),
         openrouter_api_url=str(
@@ -309,7 +309,7 @@ def load_settings() -> Settings:
         serpapi_timeout_seconds=as_int(
             setting("SERPAPI_TIMEOUT_SECONDS", 75), 75
         ),
-        google_max_terms=as_int(setting("GOOGLE_TRENDS_MAX_TERMS", 12), 12),
+        google_max_terms=as_int(setting("GOOGLE_TRENDS_MAX_TERMS", 24), 24),
         google_max_discovery_seeds=as_int(
             setting("GOOGLE_TRENDS_MAX_DISCOVERY_SEEDS", 2), 2
         ),

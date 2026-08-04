@@ -3,9 +3,14 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from src.connectors.commercial_sources import (
+    COMMERCIAL_SOURCES,
+    CommercialSourceCollector,
     _page_metadata,
+    _source_headings,
     extract_explicit_trend_labels,
+    parse_feed_entries,
     parse_page,
+    parse_sitemap,
     score_commercial_evidence,
 )
 
@@ -111,3 +116,85 @@ def test_trusted_taxonomy_allows_material_but_not_department_noun() -> None:
     assert "Colour Block" in names
     assert "Pants" not in names
     assert "Polka" not in names
+
+
+def test_whowhatwear_adapter_uses_editorial_sections_not_product_cards() -> None:
+    source = next(row for row in COMMERCIAL_SOURCES if row.key == "whowhatwear")
+    page = parse_page(
+        """
+        <html><head><title>17 Fall 2026 Trends to Know</title></head><body>
+        <h3 class="article-body__section">Croc-Effect Bags</h3>
+        <h3 class="article-body__section">Tapestry Designs</h3>
+        <h3 class="product-card">Example Brand Handbag</h3>
+        </body></html>
+        """
+    )
+    headings = _source_headings(source, page, "https://www.whowhatwear.com/fashion/trends/example")
+    labels = extract_explicit_trend_labels(title=page.title, headings=headings)
+    assert {row["trend_name"] for row in labels} == {
+        "Croc Effect Bags",
+        "Tapestry Designs",
+    }
+
+
+def test_vogue_adapter_keeps_h2_trends_and_rejects_h3_product_names() -> None:
+    source = next(row for row in COMMERCIAL_SOURCES if row.key == "vogue")
+    page = parse_page(
+        """
+        <html><head><title>Top Fall 2026 Shoe Trends</title></head><body>
+        <h2>The Kitten Heel</h2>
+        <h3 class="UnifiedProductCardName">Example 95 Pumps</h3>
+        <h2>The T-strap</h2>
+        </body></html>
+        """
+    )
+    headings = _source_headings(source, page, "https://www.vogue.com/article/fall-2026-shoe-trends")
+    assert headings == ["The Kitten Heel", "The T-strap"]
+
+
+def test_publisher_feed_and_news_sitemap_are_parsed() -> None:
+    feed = parse_feed_entries(
+        """<rss><channel><item><title>Five Denim Trends</title>
+        <link>https://publisher.example/denim</link>
+        <pubDate>Mon, 03 Aug 2026 16:06:04 GMT</pubDate></item></channel></rss>"""
+    )
+    assert feed[0]["url"] == "https://publisher.example/denim"
+    entries, children = parse_sitemap(
+        """<urlset xmlns:news="http://www.google.com/schemas/sitemap-news/0.9">
+        <url><loc>https://publisher.example/report</loc><news:news>
+        <news:publication_date>2026-08-03</news:publication_date>
+        <news:title>Current Fashion Trends</news:title></news:news></url></urlset>"""
+    )
+    assert children == []
+    assert entries == [
+        {
+            "url": "https://publisher.example/report",
+            "title": "Current Fashion Trends",
+            "published_at": "2026-08-03",
+        }
+    ]
+
+
+def test_configured_current_report_cannot_be_pushed_out_by_sitemap_noise() -> None:
+    source = next(row for row in COMMERCIAL_SOURCES if row.key == "whowhatwear")
+    ranked = CommercialSourceCollector._rank_candidates(
+        source,
+        [
+            {
+                "title": "editor favorite fall trends 2026",
+                "url": source.article_urls[0],
+                "published_at": "",
+                "acquisition": "configured publisher report",
+            },
+            *[
+                {
+                    "title": f"Fashion Week Runway Trends Report {index}",
+                    "url": f"https://www.whowhatwear.com/fashion/runway/report-{index}",
+                    "published_at": f"2026-08-{index + 1:02d}",
+                    "acquisition": "publisher sitemap",
+                }
+                for index in range(25)
+            ],
+        ],
+    )
+    assert ranked[0]["url"] == source.article_urls[0]

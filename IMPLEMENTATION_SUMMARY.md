@@ -1,4 +1,4 @@
-# HULA Trend Intelligence — build 2026.08.03.1
+# HULA Trend Intelligence — build 2026.08.04.1
 
 ## Requested corrections
 
@@ -19,12 +19,19 @@
 - Strict fourteen-day timestamp gate for X.
 - Commercial discovery from Tagwalk, Trendalytics, Heuritech, Who What Wear,
   Who What Wear UK, Data But Make It Fashion, Vogue, ELLE and Lyst Index.
-- Only explicit article/report titles, trend-labelled headings and Tagwalk
-  taxonomy count; ordinary body text is excluded.
+- Layered discovery through source-specific HTML, configured seasonal reports,
+  publisher RSS/news sitemaps and the existing SerpApi key as a bounded
+  domain-restricted fallback.
+- Only publisher-owned titles, selected editorial trend headings, Tagwalk
+  taxonomy, Lyst ranked products and explicit quantified data statements count;
+  ordinary unlabelled prose and product cards are excluded.
+- The radar shows the complete linked publisher inventory separately from the
+  cross-source action list.
 - Instagram uses aggregate hashtag analytics after qualification, with
   top/latest post collection disabled.
 - Google rising-query discovery over seven days, one-month validation and
-  seven-day acceleration.
+  seven-day acceleration for up to 24 balanced candidates. Cache schema 3.0
+  invalidates the previous narrow cache once.
 - Supabase aggregate snapshot and blog-draft history.
 - Gemini 3.6 Flash grounded editorial research after deterministic ranking.
 - Claim-level source mapping; unsupported confirmed claims are downgraded and
@@ -36,7 +43,7 @@
 2. Add `SUPABASE_URL`, `SUPABASE_SECRET_KEY` and `GEMINI_API_KEY` to GitHub
    Actions Secrets as well as Streamlit Secrets.
 3. Preserve the existing SerpApi, Apify, OpenRouter and catalogue secrets.
-4. Deploy the repository and confirm **Build 2026.08.03.1**.
+4. Deploy the repository and confirm **Build 2026.08.04.1**.
 5. In **Data & Setup**, run the publisher, hashtag and API connection checks.
 6. Run one manual full refresh and review the source-health diagnostics.
 7. Open **Wednesday Blog** and review claim statuses before publishing.
@@ -46,7 +53,7 @@ See `START_HERE.md` and the `docs/` folder for complete instructions.
 ## Verification
 
 ```text
-80 offline tests passed
+85 offline tests passed
 Python compilation passed
 Streamlit smoke tests passed for all six pages
 Workflow YAML and Streamlit TOML parsed successfully

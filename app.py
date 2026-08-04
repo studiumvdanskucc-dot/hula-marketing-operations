@@ -64,7 +64,7 @@ PALETTE = [PINK, INK, LILAC, "#e8a846", "#6f8e84", "#d46262"]
 CATALOGUE_CSV = "Upload CSV"
 CATALOGUE_API = "Shopify API"
 CATALOGUE_SELECTOR_KEY = "catalogue_source_selector_v2"
-APP_BUILD = "2026.08.03.1"
+APP_BUILD = "2026.08.04.1"
 DECISION_COLORS = {
     "Act now": PINK,
     "Test this week": "#e8a846",
@@ -282,7 +282,7 @@ def google_direction(trend: dict) -> str:
     return "Stable"
 
 
-def priority_rows(trends: list[dict], *, limit: int = 10) -> pd.DataFrame:
+def priority_rows(trends: list[dict], *, limit: int = 30) -> pd.DataFrame:
     rows = sorted(
         trends,
         key=lambda row: float(row.get("score") or 0),
@@ -307,6 +307,55 @@ def priority_rows(trends: list[dict], *, limit: int = 10) -> pd.DataFrame:
             for index, row in enumerate(rows)
         ]
     )
+
+
+def publisher_inventory_rows(snapshot: dict) -> pd.DataFrame:
+    """Show every publisher-named trend separately from the action gate."""
+
+    meta = snapshot.get("meta") or {}
+    discoveries = list(meta.get("commercial_discoveries") or [])
+    trends_by_id = {
+        str(row.get("id") or ""): row for row in snapshot.get("trends") or []
+    }
+    rows: list[dict[str, object]] = []
+    for discovery in discoveries:
+        trend_id = str(discovery.get("id") or "")
+        merged = trends_by_id.get(trend_id) or {}
+        evidence = list(discovery.get("commercial_evidence") or [])
+        pages = list(
+            dict.fromkeys(
+                str(row.get("url") or "") for row in evidence if row.get("url")
+            )
+        )
+        publishers = list(discovery.get("publisher_names") or [])
+        if not publishers:
+            publishers = list(
+                dict.fromkeys(
+                    str(row.get("publisher") or "")
+                    for row in evidence
+                    if row.get("publisher")
+                )
+            )
+        if merged.get("decision_ready"):
+            validation = "Action-ready"
+        elif merged.get("google_score") is not None:
+            validation = "Google validated; awaiting another source"
+        else:
+            validation = "Publisher-discovered; not Google-validated"
+        rows.append(
+            {
+                "Trend": discovery.get("name"),
+                "Publisher sites": ", ".join(publishers) or "Not reported",
+                "Evidence pages": len(pages),
+                "Validation": validation,
+                "First source": pages[0] if pages else "",
+                "_score": float(discovery.get("commercial_score") or 0),
+            }
+        )
+    rows.sort(key=lambda row: (-float(row["_score"]), str(row["Trend"])))
+    for row in rows:
+        row.pop("_score", None)
+    return pd.DataFrame(rows)
 
 
 def mode_banner(meta: dict) -> None:
@@ -604,6 +653,55 @@ def trend_radar(snapshot: dict) -> None:
             "'Act now' or 'Test this week' recommendation."
         )
 
+    commercial_collection = meta.get("commercial_collection") or {}
+    publisher_status = commercial_collection.get("source_status") or {}
+    publisher_inventory = publisher_inventory_rows(snapshot)
+    sites_with_trends = sum(
+        int((row or {}).get("named_trends") or 0) > 0
+        for row in publisher_status.values()
+    )
+    raw_counts = meta.get("raw_counts") or {}
+    coverage = st.columns(4)
+    coverage[0].metric(
+        "Publisher sites with evidence",
+        f"{sites_with_trends}/{len(COMMERCIAL_SOURCES)}",
+    )
+    coverage[1].metric(
+        "Publisher-named trends",
+        int(commercial_collection.get("named_trends") or len(publisher_inventory)),
+    )
+    coverage[2].metric(
+        "Google-validated terms",
+        int(raw_counts.get("google_terms") or 0),
+    )
+    coverage[3].metric("Action-ready trends", len(ready_trends))
+
+    section_header(
+        "Publisher inventory",
+        "Everything the approved websites explicitly named",
+    )
+    if publisher_inventory.empty:
+        st.error(
+            "The last refresh extracted zero named trends from the approved publisher "
+            "panel. A page-load success is not counted as evidence; inspect each source "
+            "in Data & Setup."
+        )
+    else:
+        st.dataframe(
+            publisher_inventory,
+            hide_index=True,
+            width="stretch",
+            height=min(680, 38 * len(publisher_inventory) + 42),
+            column_config={
+                "First source": st.column_config.LinkColumn("First source page"),
+            },
+        )
+        st.caption(
+            "This is the discovery inventory, not an automatic recommendation. Every "
+            "row links back to an approved publisher page. The separate action list "
+            "below still requires fresh Google demand plus another confirming source."
+        )
+
     section_header("Priority view", "What to do with each trend")
     decision_legend()
     if ready_trends:
@@ -630,7 +728,8 @@ def trend_radar(snapshot: dict) -> None:
 
     if watchlist:
         with st.expander(
-            f"Watchlist waiting for source confirmation ({len(watchlist)})"
+            f"Watchlist waiting for source confirmation ({len(watchlist)})",
+            expanded=True,
         ):
             st.dataframe(
                 pd.DataFrame(
@@ -670,7 +769,7 @@ def trend_radar(snapshot: dict) -> None:
                     ),
                     "Evidence quality": f"{float(trend.get('evidence_quality', 0)):.0f}/100",
                 }
-                for trend in ready_trends
+                for trend in trends
             ]
         )
         if not technical.empty:
@@ -681,7 +780,11 @@ def trend_radar(snapshot: dict) -> None:
         )
 
     section_header("Deep dive", "Inspect one signal")
-    inspectable = ready_trends or trends
+    inspectable = sorted(
+        trends,
+        key=lambda row: float(row.get("score") or 0),
+        reverse=True,
+    )
     selected_name = st.selectbox(
         "Trend",
         [trend.get("name") for trend in inspectable],
@@ -755,8 +858,9 @@ def trend_radar(snapshot: dict) -> None:
             },
         )
         st.caption(
-            "A page counts only when its title or a trend-labelled heading names "
-            "the trend. Ordinary body text is never counted."
+            "Evidence must come from a publisher-owned title, selected editorial "
+            "trend heading, runway taxonomy, ranked product or an explicit quantified "
+            "data statement. Ordinary unlabelled prose and shopping cards are excluded."
         )
 
     if selected.get("instagram_hashtag"):
@@ -1600,7 +1704,7 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
                     "Evidence": (
                         "Named runway taxonomy"
                         if source.kind == "taxonomy"
-                        else "Article/report title + trend-labelled headings"
+                        else "Publisher title, editorial trend heading or quantified report signal"
                     ),
                 }
                 for source in COMMERCIAL_SOURCES
@@ -1614,7 +1718,9 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
         "Tagwalk, Trendalytics, Heuritech, Data But Make It Fashion and Lyst carry "
         "the higher authority weight. Who What Wear, Who What Wear UK, Vogue and "
         "ELLE provide commercial/editorial confirmation. A source counts only when "
-        "its title or a trend-labelled heading explicitly names the trend."
+        "its own title, taxonomy, editorial trend heading or quantified report text "
+        "explicitly names the trend. RSS, sitemaps and domain-restricted search are "
+        "discovery routes; ordinary article prose is not mined indiscriminately."
     )
     publisher_status = (
         (meta.get("commercial_collection") or {}).get("source_status") or {}
@@ -1631,7 +1737,11 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
                             f"{int(row.get('pages_requested') or 0)}"
                         ),
                         "Articles loaded": int(row.get("articles_loaded") or 0),
+                        "Named trends": int(row.get("named_trends") or 0),
                         "Explicit evidence": int(row.get("evidence_rows") or 0),
+                        "Discovery routes": ", ".join(
+                            row.get("discovery_methods") or []
+                        ),
                         "First error": str((row.get("errors") or [""])[0]),
                     }
                     for key, row in publisher_status.items()
@@ -2006,6 +2116,8 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
                 result = CommercialSourceCollector(
                     timeout_seconds=settings.commercial_timeout_seconds,
                     max_workers=settings.commercial_max_workers,
+                    serpapi_api_key=settings.serpapi_api_key,
+                    serpapi_endpoint=settings.serpapi_endpoint,
                 ).test_connection()
                 ok = bool(result.get("ok"))
                 st.session_state.commercial_test_result = {
@@ -2013,8 +2125,13 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
                     "detail": (
                         f"{int(result.get('publishers_live') or 0)} live, "
                         f"{int(result.get('publishers_partial') or 0)} partial and "
-                        f"{int(result.get('publishers_failed') or 0)} failed publishers."
+                        f"{int(result.get('publishers_failed') or 0)} failed publishers · "
+                        f"{int(result.get('publishers_with_evidence') or 0)}/"
+                        f"{len(COMMERCIAL_SOURCES)} sites yielded named evidence · "
+                        f"{int(result.get('named_trends') or 0)} named trends and "
+                        f"{int(result.get('evidence_rows') or 0)} evidence rows."
                     ),
+                    "source_status": result.get("source_status") or {},
                 }
             except Exception as exc:
                 st.session_state.commercial_test_result = {
@@ -2026,7 +2143,10 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
             (st.success if commercial_test.get("ok") else st.error)(
                 str(commercial_test.get("detail", "No diagnostic detail was returned."))
             )
-        st.caption("Tests all approved public sources independently; no API key is required.")
+        st.caption(
+            "Tests every approved source independently. Direct publisher pages need no "
+            "new key; the existing SerpApi key is used only as a domain-restricted fallback."
+        )
 
     with platform_tests[1]:
         if st.button(
@@ -2125,6 +2245,27 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
             "Search grounding used by researched blogs additionally requires "
             "a billing-enabled Gemini project."
         )
+
+    if isinstance(commercial_test, dict):
+        test_sources = commercial_test.get("source_status") or {}
+        if test_sources:
+            st.dataframe(
+                pd.DataFrame(
+                    [
+                        {
+                            "Publisher": row.get("publisher") or key,
+                            "State": row.get("state"),
+                            "Named trends": int(row.get("named_trends") or 0),
+                            "Evidence rows": int(row.get("evidence_rows") or 0),
+                            "Routes": ", ".join(row.get("discovery_methods") or []),
+                            "First error": str((row.get("errors") or [""])[0]),
+                        }
+                        for key, row in test_sources.items()
+                    ]
+                ),
+                hide_index=True,
+                width="stretch",
+            )
 
     section_header("Live refresh", "Run the full evidence pipeline")
     include_llm = st.checkbox("Use Qwen to label and enrich trends", value=settings.openrouter_configured)
@@ -2259,7 +2400,7 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
             st.metric(title, number)
             st.caption(copy)
     st.markdown(
-        '<div class="method-note"><strong>Data minimisation:</strong> raw X posts are held only during the refresh, then discarded. Commercial evidence keeps only public article/report titles, explicit trend-labelled headings, dates and URLs. Instagram requests aggregate hashtag metadata with top/latest post collection disabled—no captions, accounts or images enter the app. A product CSV is normalised into product fields and the raw upload is not retained separately. Shopify access is read-only and excludes customers, orders and payments. Gemini receives only public trend and selected-product information.</div>',
+        '<div class="method-note"><strong>Data minimisation:</strong> raw X posts are held only during the refresh, then discarded. Commercial evidence keeps only public publisher labels, selected headings, quantified signals, dates, URLs and acquisition routes. Instagram requests aggregate hashtag metadata with top/latest post collection disabled—no captions, accounts or images enter the app. A product CSV is normalised into product fields and the raw upload is not retained separately. Shopify access is read-only and excludes customers, orders and payments. Gemini receives only public trend and selected-product information.</div>',
         unsafe_allow_html=True,
     )
     warnings = meta.get("warnings", [])

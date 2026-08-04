@@ -1,6 +1,6 @@
 # Start HULA Trend Intelligence
 
-This is build **2026.08.03.1**.
+This is build **2026.08.04.1**.
 
 ## Before the first refresh
 
@@ -25,7 +25,7 @@ cp .env.example .env
 python -m streamlit run app.py
 ```
 
-Open <http://localhost:8501>, confirm **Build 2026.08.03.1**, then open
+Open <http://localhost:8501>, confirm **Build 2026.08.04.1**, then open
 **Data & Setup** and run:
 
 1. Test Google Trends (Worldwide)
@@ -39,8 +39,10 @@ Open <http://localhost:8501>, confirm **Build 2026.08.03.1**, then open
 9. Run the full refresh
 
 The first refresh collects the latest fourteen-day X window and explicit trend
-evidence from the approved publisher pages, validates specific candidates with
-Google, compares qualified hashtags on Instagram and can generate the Wednesday
-blog. A CSV catalogue correctly keeps the dataset in Hybrid Mode.
+evidence through publisher pages, feeds, sitemaps and a domain-restricted
+SerpApi fallback. It then validates up to 24 balanced candidates with Google,
+compares qualified hashtags on Instagram and can generate the Wednesday blog.
+The previous Google cache is deliberately invalidated once. A CSV catalogue
+correctly keeps the dataset in Hybrid Mode.
 
 For deployment, follow [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).

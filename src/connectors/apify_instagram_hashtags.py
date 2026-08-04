@@ -63,22 +63,42 @@ def normalize_hashtag_metric(
     trend_by_hashtag: dict[str, dict[str, str]],
 ) -> dict[str, Any] | None:
     hashtag = hashtag_for_trend(
-        record.get("name") or record.get("id") or record.get("hashtag")
+        record.get("name")
+        or record.get("id")
+        or record.get("hashtag")
+        or record.get("searchTerm")
+        or record.get("query")
     )
     trend = trend_by_hashtag.get(hashtag)
     if not hashtag or trend is None:
         return None
     related_rows: list[dict[str, Any]] = []
-    for item in record.get("related") or []:
+    related_source = (
+        record.get("related")
+        or record.get("relatedHashtags")
+        or record.get("frequent")
+        or []
+    )
+    for item in related_source:
+        if isinstance(item, str):
+            item = {"name": item}
         if not isinstance(item, dict):
             continue
-        related = hashtag_for_trend(item.get("hash") or item.get("name"))
+        related = hashtag_for_trend(
+            item.get("hash") or item.get("name") or item.get("hashtag")
+        )
         if not related:
             continue
         related_rows.append(
             {
                 "hashtag": related,
-                "posts_count": int(parse_compact_number(item.get("info"))),
+                "posts_count": int(
+                    parse_compact_number(
+                        item.get("info")
+                        or item.get("postsCount")
+                        or item.get("posts")
+                    )
+                ),
             }
         )
         if len(related_rows) >= 8:
@@ -88,10 +108,21 @@ def normalize_hashtag_metric(
         "name": trend["name"],
         "hashtag": hashtag,
         "posts_count": int(
-            parse_compact_number(record.get("postsCount") or record.get("posts"))
+            parse_compact_number(
+                record.get("postsCount")
+                or record.get("postCount")
+                or record.get("totalPosts")
+                or record.get("mediaCount")
+                or record.get("posts")
+            )
         ),
         "posts_per_day": round(
-            parse_compact_number(record.get("postsPerDay")), 2
+            parse_compact_number(
+                record.get("postsPerDay")
+                or record.get("averagePostsPerDay")
+                or record.get("postFrequency")
+            ),
+            2,
         ),
         "related_hashtags": related_rows,
         "metric_scope": "public aggregate hashtag metadata",
@@ -304,7 +335,7 @@ class InstagramHashtagAnalyticsConnector:
 
         dataset_id = str(run.get("defaultDatasetId") or "")
         raw_items = self._dataset_items(dataset_id) if dataset_id else []
-        metrics = [
+        normalized = [
             metric
             for record in raw_items
             if (
@@ -314,6 +345,23 @@ class InstagramHashtagAnalyticsConnector:
                 )
             )
         ]
+        # A retried Actor run can occasionally return the same hashtag twice.
+        # Keep the richest aggregate row without ever retaining post-level data.
+        metric_by_hashtag: dict[str, dict[str, Any]] = {}
+        for metric in normalized:
+            hashtag = str(metric.get("hashtag") or "")
+            current = metric_by_hashtag.get(hashtag)
+            value = (
+                float(metric.get("posts_per_day") or 0),
+                int(metric.get("posts_count") or 0),
+            )
+            current_value = (
+                float((current or {}).get("posts_per_day") or 0),
+                int((current or {}).get("posts_count") or 0),
+            )
+            if current is None or value > current_value:
+                metric_by_hashtag[hashtag] = metric
+        metrics = list(metric_by_hashtag.values())
         usage = run.get("usageTotalUsd")
         try:
             usage_usd = round(float(usage), 6) if usage is not None else None
@@ -329,5 +377,14 @@ class InstagramHashtagAnalyticsConnector:
             "usage_usd": usage_usd,
             "run_id": run_id,
             "items_returned": len(raw_items),
+            "items_normalized": len(metrics),
+            "unmatched_items": max(0, len(raw_items) - len(normalized)),
+            "returned_fields": sorted(
+                {
+                    str(key)
+                    for item in raw_items
+                    for key in item.keys()
+                }
+            )[:30],
             "privacy_mode": "aggregate metadata; top/latest posts disabled",
         }
