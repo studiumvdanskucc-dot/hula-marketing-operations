@@ -42,7 +42,7 @@ sales or search demand.
 Use **Data & Setup → Test hashtag Actor** to verify access without starting a
 paid run. That button checks Actor availability only. The full refresh records
 requested hashtags, returned aggregate dataset rows, normalised hashtags,
-missing hashtags and the returned top-level field names. Build 2026.08.04.1
+missing hashtags and the returned top-level field names. Build 2026.08.06.2
 accepts the Actor's `searchTerm` field as well as `name`, `id` and `hashtag`, so
 a valid dataset row is no longer silently discarded because of its identifier
 field.

@@ -149,7 +149,7 @@ def test_repeated_refresh_reuses_fresh_google_cache(tmp_path, monkeypatch) -> No
                     "schema_version": "3.0",
                     "collected_at": datetime.now(tz=timezone.utc).isoformat(),
                 "market": "WORLDWIDE",
-                "context_timeframe": "today 1-m",
+                "context_timeframe": "today 3-m",
                 "discovery_timeframe": "now 7-d",
                 "provider": "SerpApi Google Trends",
                 "context_series": {

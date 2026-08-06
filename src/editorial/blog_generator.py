@@ -3,7 +3,6 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from src.connectors.gemini_research import GeminiResearchConnector
 from src.editorial.evidence import normalise_blog_evidence
 
 
@@ -47,12 +46,21 @@ Explore the edit at {destinations}. Availability is one of one.
             "seo_description": f"Explore pre-owned designer pieces inspired by {trend_name.lower()} at HULA.",
             "claims": [],
             "editorial_notes": [
-                "Gemini research was unavailable. This fallback contains no celebrity or runway claims."
+                "The configured writing model was unavailable. This fallback contains no unsupported celebrity or runway claims."
             ],
-            "sources": [],
+            "sources": [
+                {
+                    "index": index,
+                    "title": str(row.get("title") or row.get("source_name") or f"Source {index}"),
+                    "url": str(row.get("source_url") or ""),
+                }
+                for index, row in enumerate(trend.get("evidence") or [], 1)
+                if str(row.get("source_url") or "").startswith(("https://", "http://"))
+            ],
             "generated_at": datetime.now(tz=timezone.utc).isoformat(),
             "model": "deterministic fallback",
             "grounded": False,
+            "evidence_locked": True,
             "reason": reason,
             "trend_id": trend.get("id"),
             "product_ids": [product.get("id") for product in products[:5]],
@@ -60,15 +68,15 @@ Explore the edit at {destinations}. Availability is one of one.
     )
 
 
-def generate_researched_blog(
-    connector: GeminiResearchConnector,
+def generate_evidence_blog(
+    connector: Any,
     trend: dict[str, Any],
     products: list[dict[str, Any]],
     *,
     reason: str,
     stores: list[str] | None = None,
 ) -> dict[str, Any]:
-    result = connector.researched_blog(
+    result = connector.evidence_locked_blog(
         trend,
         products,
         reason=reason,
@@ -82,3 +90,22 @@ def generate_researched_blog(
         }
     )
     return normalise_blog_evidence(result)
+
+
+def generate_researched_blog(
+    connector: Any,
+    trend: dict[str, Any],
+    products: list[dict[str, Any]],
+    *,
+    reason: str,
+    stores: list[str] | None = None,
+) -> dict[str, Any]:
+    """Backward-compatible name for the evidence-locked writer."""
+
+    return generate_evidence_blog(
+        connector,
+        trend,
+        products,
+        reason=reason,
+        stores=stores,
+    )

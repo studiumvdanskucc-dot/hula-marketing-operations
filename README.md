@@ -1,110 +1,89 @@
 # HULA Trend Intelligence
 
-Current build: **2026.08.04.1**.
+Current build: **2026.08.06.2** · methodology **2.0**.
 
-A Streamlit workflow for finding fresh fashion signals, validating them across
-search and conversation, matching them to HULA's selected catalogue, and
-turning the best opportunities into store and editorial actions.
+An evidence-first Streamlit workflow for detecting current fashion momentum,
+showing exactly why each trend is ranked, matching the opportunity to HULA's
+catalogue, and drafting an editorial story from the same stored evidence.
 
-## What is included
+## What changed
 
-- **This Week** — the strongest complete signals and best catalogue matches.
-- **Trend Radar** — a complete linked publisher inventory followed by the
-  separately validated Act now, Test this week and Watch decisions.
-- **Product Match** — transparent product rankings with adjustable weights.
-- **Campaign Studio** — Qwen-powered Reel, carousel, email and store briefs.
-- **Wednesday Blog** — a 700–1,000-word Gemini draft with Google Search
-  grounding, editable Markdown and exact-product claim controls.
-- **Data & Setup** — source health, connection tests, refresh diagnostics and a
-  complete term-filter audit.
+The app no longer treats an AI synthesis as measured trend data and no longer
+requires Google Trends to be present before a trend can qualify. Every public
+score is calculated deterministically in Python from evidence saved with the
+weekly snapshot. Missing data stays `null`, remaining component weights are
+renormalised, and a separate evidence-coverage score prevents incomplete rows
+from looking complete.
 
-The signal stack is:
+The dashboard contains:
+
+- **This Week** — HULA-ranked opportunities, 90-day Google context and products.
+- **Trend Radar** — confidence, coverage, momentum, component scores, caps,
+  warnings, independent domains and linked evidence.
+- **Product Match** — in-stock catalogue ranking and the separate HULA
+  opportunity score.
+- **Campaign Studio** — deterministic or model-assisted campaign briefs.
+- **Wednesday Blog** — an editable 700–1,000-word draft constrained to the
+  stored trend evidence and selected product facts.
+- **Data & Setup** — source health, credential-safe tests, methodology and
+  refresh controls.
+
+## Confidence model
+
+| Component | Weight |
+| --- | ---: |
+| Editorial evidence | 25% |
+| Cross-source confirmation | 20% |
+| Google Trends momentum | 20% |
+| Social momentum | 15% |
+| Runway / celebrity activation | 10% |
+| Commercial availability | 10% |
+
+Confidence and HULA opportunity are deliberately separate:
 
 ```text
-35% Google Trends worldwide
-20% open X topic momentum
-35% approved website/report confirmation
-10% aggregate Instagram hashtag comparison
+HULA opportunity = 65% trend confidence
+                 + 25% catalogue match
+                 + 10% luxury-resale suitability
 ```
 
-A component that was not collected is never converted to zero. A trend enters
-the decision list only when fresh Google demand and at least one open,
-commercial-report or hashtag source agree.
+See [the full methodology](docs/METHODOLOGY.md) for recency factors, source
+weights, missing-data behaviour, duplicate handling and confidence caps.
 
-## Freshness and quality guarantees
+## Collection approach
 
-- X posts require real timestamps inside the latest fourteen days. The
-  timestamp—not a scraper label—determines the current or previous seven-day
-  window.
-- Missing, malformed, future, reposted, duplicated and older records are
-  rejected before candidate extraction.
-- Google uses rising-query discovery over `now 7-d`, one-month validation over
-  `today 1-m`, and a separate seven-day acceleration series.
-- Charts use Google's original 0–100 index. Anchor-calibrated values remain
-  internal for cross-query ranking and may never be drawn.
-- Low-resolution, plateau-heavy, out-of-range and isolated-spike Google
-  timelines are withheld from charts.
-- A 24-hour Google cache is live. A compatible cache up to three days old may
-  be shown as **STALE**, but it cannot create a recommendation.
-- `pants`, `skirt`, `flats` and `polka` are blocked alone. `capri pants`,
-  `pencil skirt`, `ballet flats` and `polka dots` remain valid. The approved
-  standalone exceptions are `jeans`, `loafers` and `sandals`.
+This is web research and trend aggregation—not unrestricted scraping. The app
+prefers public publisher pages, RSS, sitemaps, permitted metadata, short
+excerpts and domain-restricted search results. It does not bypass login or
+paywalls and does not store copied articles.
 
-## Commercial websites and reports
+The approved editorial/industry panel includes Data But Make It Fashion, Lyst,
+Tagwalk, Who What Wear, Who What Wear UK, Vogue, ELLE, Harper's Bazaar,
+InStyle, Refinery29, Teen Vogue, Trendalytics and Heuritech. Google Trends,
+aggregate Instagram metadata and open X signals remain optional components.
 
-The commercial component collects public evidence from:
+## Model responsibilities
 
-- Data But Make It Fashion
-- Tagwalk
-- Trendalytics
-- Heuritech
-- Who What Wear
-- Who What Wear UK
-- Vogue
-- ELLE
-- Lyst
+The recommended mixed path is:
 
-The collector uses publisher pages, RSS feeds and sitemaps, then the existing
-SerpApi key as a domain-restricted fallback when a page is blocked or rendered
-only with JavaScript. An article/report title, an editorial trend heading,
-Tagwalk taxonomy, a Lyst ranked product or an explicitly quantified
-data-publisher statement can introduce a trend; ordinary unlabelled prose does
-not. Every evidence row keeps its publisher, exact label, article title,
-publication date, public URL and acquisition route. Each publisher fails
-independently.
+- **Luna** — cheap relevance filtering and boilerplate classification;
+- **Terra** — candidate extraction and conservative alias merging;
+- **Sol** — one final evidence-led synthesis and the editorial draft;
+- **Python** — dates, recency decay, time-series calculations, domain counts,
+  caps, weights, HULA opportunity, ordering, usage totals and snapshots.
 
-## Instagram comparison
+The app uses the OpenAI Responses API with strict structured output when an
+`OPENAI_API_KEY` is configured. OpenRouter and Gemini remain optional
+fallbacks. A model never owns the numerical confidence score.
 
-Instagram is not a discovery or visual-scraping source. After Google and the
-publisher panel qualify a trend, the app requests only aggregate hashtag
-metadata: total public uses, posts per day and related hashtag counts. The
-Actor input explicitly disables top/latest post collection, so captions,
-accounts and images never enter the pipeline. The signal is directional and
-is never described as causal.
+## Honest limitations
 
-## Wednesday blog
-
-Gemini runs only after the deterministic ranking and product match are
-complete. The draft includes source URLs and evidence statuses. A named person
-may be described as wearing a selected product only when a credible source
-supports the exact design. A similar item is labelled `similar_design_only`
-and excluded from factual publishable copy.
-
-Soho and The Hub are available equally as campaign objectives, store
-activations, editorial reasons and calls to action.
-
-## Architecture
-
-```mermaid
-flowchart TD
-    A["Wednesday refresh"] --> B["X + publisher discovery"]
-    B --> C["Specificity gate"]
-    C --> D["Google validation"]
-    D --> E["Instagram hashtag metadata"]
-    E --> F["Deterministic scoring"]
-    F --> G["Catalogue + editorial"]
-    F --> H["Dashboard + history"]
-```
+TikTok, Pinterest and Reddit are not silently inferred: without a permitted
+connector their measurements remain absent. External commercial availability
+is currently strongest where Lyst or an explicit retail source supplies it.
+Publisher blocks, missing dates and low-volume Google queries lower evidence
+coverage instead of being filled with model guesses. The bundled demo URLs and
+numbers are clearly illustrative and must never be presented as live research.
 
 ## Quick start
 
@@ -116,31 +95,28 @@ cp .env.example .env
 python -m streamlit run app.py
 ```
 
-Seeing **Build 2026.08.04.1** at the bottom of the sidebar confirms that the
-correct version is running.
+Seeing **Build 2026.08.06.2** in the sidebar confirms the current copy.
 
 ## Setup order
 
-1. Choose a catalogue route: [CSV](docs/CSV_CATALOGUE.md) or
-   [Shopify API](docs/SHOPIFY_SETUP.md).
-2. Configure [X via Apify](docs/APIFY_SETUP.md).
-3. Review the [commercial website panel](docs/COMMERCIAL_SOURCES.md).
-4. Configure [aggregate Instagram hashtags](docs/INSTAGRAM_SETUP.md).
-5. Configure [Google Trends through SerpApi](docs/GOOGLE_TRENDS_SETUP.md).
-6. Run the [Supabase schema](docs/SUPABASE_SETUP.md).
-7. Configure the [Gemini Wednesday blog](docs/GEMINI_BLOG_SETUP.md).
-8. Add the OpenRouter/Qwen settings from `.env.example`.
-9. Follow the [deployment guide](docs/DEPLOYMENT.md).
-10. Review the [methodology](docs/METHODOLOGY.md).
+1. Choose [CSV](docs/CSV_CATALOGUE.md) or [Shopify](docs/SHOPIFY_SETUP.md).
+2. Configure [Google Trends](docs/GOOGLE_TRENDS_SETUP.md).
+3. Review [approved publisher sources](docs/COMMERCIAL_SOURCES.md).
+4. Optionally configure [X](docs/APIFY_SETUP.md) and
+   [Instagram aggregates](docs/INSTAGRAM_SETUP.md).
+5. Configure the [OpenAI mixed-model path](docs/OPENAI_SETUP.md).
+6. Run the [Supabase schema](docs/SUPABASE_SETUP.md) for durable snapshots.
+7. Follow the [deployment guide](docs/DEPLOYMENT.md).
 
-Streamlit Secrets and GitHub Actions Secrets are separate. Add each credential
-to both stores if the dashboard and scheduled Wednesday workflow both need it.
-Never commit `.env`, `.streamlit/secrets.toml`, API keys or raw catalogue files.
+Streamlit Secrets and GitHub Actions Secrets are separate. Add credentials to
+both only when both the dashboard and scheduled workflow need them. Never
+commit `.env`, `.streamlit/secrets.toml`, API keys or raw catalogue exports.
 
-## Test
+## Verification
 
 ```bash
+python -m compileall -q app.py src scripts tests
 pytest -q
 ```
 
-The 85 tests are offline and require no real API credentials.
+The suite is offline and uses no real API credentials.

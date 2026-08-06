@@ -1,60 +1,41 @@
-# Commercial website and report sources
+# Editorial and industry sources
 
-The 35% commercial component comes from public pages belonging to nine
-approved publishers:
+Publisher evidence feeds several methodology 2.0 components; it is no longer a
+single 35% “commercial report” score.
 
-| Publisher | Role | Weight |
+| Source | Primary role | Authority |
 | --- | --- | ---: |
-| Tagwalk | Named runway taxonomy | 3× |
-| Trendalytics | Data-backed trend reports | 3× |
-| Heuritech | Quantified fashion forecasts | 3× |
-| Data But Make It Fashion | Data-led fashion analysis | 3× |
-| Lyst Index | Quarterly shopping-demand evidence | 3× |
-| Who What Wear | Commercial/editorial trend reports | 2× |
-| Who What Wear UK | UK/European commercial interpretation | 2× |
-| Vogue | Runway and seasonal confirmation | 2× |
-| ELLE | Runway and seasonal confirmation | 2× |
+| Data But Make It Fashion | Data-led fashion evidence | 1.50 |
+| Lyst Index | Shopping demand / ranked products | 1.45 |
+| Tagwalk | Runway taxonomy | 1.40 |
+| Who What Wear / UK | Editorial and shopping confirmation | 1.30 |
+| Vogue, ELLE, Harper's Bazaar | Editorial/runway confirmation | 1.20 |
+| InStyle, Refinery29, Teen Vogue | Editorial confirmation | 1.10 |
+| Trendalytics, Heuritech | Industry-data context | 1.10 |
 
-## Evidence contract
+## Evidence rules
 
-A trend counts only when the publisher explicitly names it in one of these
-locations:
+A source may introduce a specific trend through a publisher-owned title,
+selected trend heading, runway taxonomy, ranked product or explicitly attached
+data statement. Generic body copy, unrelated shopping cards and broad labels
+such as “summer outfits” do not create trends.
 
-- the article or report title;
-- a publisher-owned RSS or sitemap title;
-- a source-specific editorial heading inside a trend report;
-- Tagwalk's named runway taxonomy;
-- a Lyst ranked-product list; or
-- a numerical demand statement from Trendalytics or Data But Make It Fashion
-  that directly attaches a named item to growth.
+Every retained row records publisher, explicit label, article/report title,
+date when exposed, public URL, evidence type and acquisition route. Repeated
+press-release copies and syndicated titles are deduplicated before scoring.
 
-Ordinary paragraphs and shopping product cards are not mined for trend names.
-Every retained row records the publisher, explicit label, article/report title,
-publication date when exposed, public URL, evidence type and acquisition route.
+## Collection routes
 
-## Discovery routes
+The collector tries, in order:
 
-The collector does not rely on a single category-page selector. It works in
-layers:
+1. public category/archive HTML;
+2. configured current reports;
+3. RSS or publisher sitemaps;
+4. a bounded domain-restricted SerpApi result when a public page is blocked or
+   rendered only with JavaScript.
 
-1. source-specific public category/archive HTML;
-2. configured current reports for high-value seasonal lists;
-3. publisher RSS feeds or news sitemaps where available;
-4. a domain-restricted query through the already configured SerpApi key when a
-   publisher yields too little evidence or blocks the app server.
-
-The fallback accepts only URLs on the approved publisher's own domain. It does
-not add a new source or require a new credential.
-
-The collector requests only public HTML and does not log in, bypass paywalls or
-execute subscriber-only content. Each publisher is isolated: a timeout,
-paywall or redesign at one site is reported as `PARTIAL` or `FAILED` without
-blocking the other sources.
-
-## Settings
-
-Direct publisher routes require no API key. If `SERPAPI_API_KEY` is already
-configured for Google Trends, it is also used for the bounded fallback.
+It does not log in, bypass paywalls or retain full articles. Each publisher
+fails independently and exposes a `LIVE`, `PARTIAL` or `FAILED` status.
 
 ```toml
 COMMERCIAL_SOURCES_ENABLED = "true"
@@ -62,7 +43,5 @@ COMMERCIAL_TIMEOUT_SECONDS = "25"
 COMMERCIAL_MAX_WORKERS = "4"
 ```
 
-Use **Data & Setup → Test publisher pages** to see the live/partial/failed
-publisher count plus the number of named trends, evidence rows and discovery
-routes for every site. A loaded page with zero extracted trends is `PARTIAL`,
-not a false success. The last refresh stores the same per-publisher status.
+Use **Data & Setup → Test publisher pages** to inspect source-by-source
+evidence counts and collection routes.

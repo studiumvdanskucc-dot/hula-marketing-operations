@@ -13,12 +13,12 @@ def _series(base: float, lift: float, seed: int) -> list[dict[str, Any]]:
     rng = random.Random(seed)
     today = datetime.now(tz=timezone.utc).date()
     points = []
-    for week in range(13):
-        progress = week / 12
-        value = base + lift * progress + math.sin(week / 1.8) * 4 + rng.uniform(-3, 3)
+    for day in range(90):
+        progress = day / 89
+        value = base + lift * progress + math.sin(day / 7.5) * 4 + rng.uniform(-2, 2)
         points.append(
             {
-                "date": (today - timedelta(days=(12 - week) * 7)).isoformat(),
+                "date": (today - timedelta(days=89 - day)).isoformat(),
                 "value": max(0, min(100, round(value))),
                 "raw_value": max(0, min(100, round(value))),
                 "display_value": max(0, min(100, round(value))),
@@ -39,6 +39,41 @@ def demo_trends() -> list[dict[str, Any]]:
     output = []
     for trend_id, name, category, score, google, x_score, search_growth, social_growth, mentions, stage, seed in rows:
         series = _series(28 + seed * 2, 28 + seed * 1.5, seed)
+        today = datetime.now(tz=timezone.utc).date()
+        demo_evidence = [
+            {
+                "publisher": "Data But Make It Fashion",
+                "url": f"https://data.example.com/hula-demo/{trend_id}",
+                "article_title": f"Demo analytics signal: {name}",
+                "published_at": (today - timedelta(days=1)).isoformat(),
+                "evidence_kind": "industry data",
+                "explicit_label": name,
+            },
+            {
+                "publisher": "Who What Wear",
+                "url": f"https://editorial.example.com/hula-demo/{trend_id}",
+                "article_title": f"Demo editorial signal: {name}",
+                "published_at": (today - timedelta(days=3)).isoformat(),
+                "evidence_kind": "editorial trend heading",
+                "explicit_label": name,
+            },
+            {
+                "publisher": "Tagwalk",
+                "url": f"https://runway.example.com/hula-demo/{trend_id}",
+                "article_title": f"Demo runway taxonomy: {name}",
+                "published_at": (today - timedelta(days=5)).isoformat(),
+                "evidence_kind": "runway taxonomy",
+                "explicit_label": name,
+            },
+            {
+                "publisher": "Lyst Index",
+                "url": f"https://retail.example.com/hula-demo/{trend_id}",
+                "article_title": f"Demo ranked product signal: {name}",
+                "published_at": (today - timedelta(days=7)).isoformat(),
+                "evidence_kind": "ranked product",
+                "explicit_label": name,
+            },
+        ]
         output.append(
             {
                 "id": trend_id,
@@ -68,7 +103,7 @@ def demo_trends() -> list[dict[str, Any]]:
                 "instagram_posts_per_day": 30 * (8 - seed),
                 "publisher_count": 2 + seed % 3,
                 "commercial_article_count": 3 + seed,
-                "commercial_evidence": [],
+                "commercial_evidence": demo_evidence,
                 "expert_mentions": 3 + seed,
                 "expert_authors": 2 + seed // 2,
                 "commercial_priority_mentions": 2 + seed // 2,
@@ -178,7 +213,7 @@ def demo_snapshot() -> dict[str, Any]:
             "warnings": [
                 "Demo data is illustrative. Add credentials and select Refresh data for live evidence."
             ],
-            "methodology_version": "0.6",
+            "methodology_version": "2.0",
             "quality_filter_version": "4.0",
             "google_display_schema_version": "2.0",
         },

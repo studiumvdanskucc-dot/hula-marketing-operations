@@ -1,5 +1,22 @@
 # Changelog
 
+## Build 2026.08.06.2 — Evidence-First Methodology 2.0
+
+- Replaced the legacy Google/X/commercial/Instagram score with deterministic
+  editorial, cross-source, Google, social, runway/celebrity and commercial
+  components.
+- Added explicit data completeness, missing-component renormalisation,
+  confidence caps, contradiction penalties and duplicate/syndication removal.
+- Removed the mandatory-Google action gate; insufficient search data remains
+  `null` and visible.
+- Added the separate HULA opportunity score and structured evidence schema.
+- Expanded publisher coverage with Harper's Bazaar, InStyle, Refinery29 and
+  Teen Vogue.
+- Added optional Luna/Terra/Sol Responses API orchestration and usage records.
+- Replaced live-grounded blog research with an evidence-locked writer.
+- Migrated the included snapshot, refreshed the Streamlit views and expanded
+  regression coverage.
+
 ## Build 2026.08.04.1 — Layered Publisher Discovery
 
 - Fixed the publisher collector that previously reported a loaded page as a

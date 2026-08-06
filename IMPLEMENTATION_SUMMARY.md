@@ -1,60 +1,41 @@
-# HULA Trend Intelligence — build 2026.08.04.1
+# HULA Trend Intelligence — build 2026.08.06.2
 
-## Requested corrections
+## Delivered architecture
 
-- Google charts use the original 0–100 index only. Anchor-calibrated values are
-  internal, and old snapshots without a raw display index are withheld.
-- Low-resolution, plateau-heavy and isolated-spike timelines are not drawn.
-- The ranked decision table contains only trends with fresh Google demand plus
-  at least one X, commercial-report or hashtag confirmation. Incomplete rows are
-  shown separately as a watchlist.
-- `pants`, `skirt`, `flats` and `polka` are blocked alone.
-- `capri pants`, `pencil skirt`, `ballet flats` and `polka dots` remain valid;
-  `jeans`, `loafers` and `sandals` are approved standalone exceptions.
-- Soho and The Hub are both available as campaign formats, objectives, blog
-  reasons, destinations and calls to action.
+- Methodology 2.0 with six deterministic Python components and documented
+  source/recency weights.
+- Missing-component renormalisation plus a separate data-completeness score.
+- Duplicate/syndication exclusion, contradiction penalties and the requested
+  one-source, product-launch, low-evidence and outdated-evidence caps.
+- Daily Google calculations for the current week, previous week, seven-day
+  slope and optional 90-day breakout baseline.
+- Structured trend objects with aliases, momentum, component breakdown,
+  metrics, domains, evidence rows, warnings and HULA opportunity.
+- Expanded publisher panel including Harper's Bazaar, InStyle, Refinery29 and
+  Teen Vogue.
+- Optional OpenAI Responses connector using Luna, Terra and Sol with strict
+  JSON schemas and per-call usage/cost records.
+- Evidence-locked blog generation: no live-search claims and no invented
+  sources or measurements.
+- Runtime and on-disk migration of the included legacy snapshot to methodology
+  2.0.
+- Updated Streamlit views, examples, secrets template, weekly workflow,
+  documentation and regression tests.
 
-## New source stack
+## Decision rules
 
-- Strict fourteen-day timestamp gate for X.
-- Commercial discovery from Tagwalk, Trendalytics, Heuritech, Who What Wear,
-  Who What Wear UK, Data But Make It Fashion, Vogue, ELLE and Lyst Index.
-- Layered discovery through source-specific HTML, configured seasonal reports,
-  publisher RSS/news sitemaps and the existing SerpApi key as a bounded
-  domain-restricted fallback.
-- Only publisher-owned titles, selected editorial trend headings, Tagwalk
-  taxonomy, Lyst ranked products and explicit quantified data statements count;
-  ordinary unlabelled prose and product cards are excluded.
-- The radar shows the complete linked publisher inventory separately from the
-  cross-source action list.
-- Instagram uses aggregate hashtag analytics after qualification, with
-  top/latest post collection disabled.
-- Google rising-query discovery over seven days, one-month validation and
-  seven-day acceleration for up to 24 balanced candidates. Cache schema 3.0
-  invalidates the previous narrow cache once.
-- Supabase aggregate snapshot and blog-draft history.
-- Gemini 3.6 Flash grounded editorial research after deterministic ranking.
-- Claim-level source mapping; unsupported confirmed claims are downgraded and
-  removed from publishable body copy when matched exactly.
-
-## First deployment
-
-1. Run `supabase/schema.sql` once in the Supabase SQL Editor.
-2. Add `SUPABASE_URL`, `SUPABASE_SECRET_KEY` and `GEMINI_API_KEY` to GitHub
-   Actions Secrets as well as Streamlit Secrets.
-3. Preserve the existing SerpApi, Apify, OpenRouter and catalogue secrets.
-4. Deploy the repository and confirm **Build 2026.08.04.1**.
-5. In **Data & Setup**, run the publisher, hashtag and API connection checks.
-6. Run one manual full refresh and review the source-health diagnostics.
-7. Open **Wednesday Blog** and review claim statuses before publishing.
-
-See `START_HERE.md` and the `docs/` folder for complete instructions.
+`Act now` requires high confidence, at least 65% evidence coverage, four
+evidence items and three independent domains. `Test this week` requires at
+least 55 confidence, 40% coverage, three evidence items and two domains.
+Google may contribute, but it is not mandatory.
 
 ## Verification
 
-```text
-85 offline tests passed
-Python compilation passed
-Streamlit smoke tests passed for all six pages
-Workflow YAML and Streamlit TOML parsed successfully
+Run:
+
+```bash
+python -m compileall -q app.py src scripts tests
+pytest -q
 ```
+
+No real service credentials are required for the test suite.

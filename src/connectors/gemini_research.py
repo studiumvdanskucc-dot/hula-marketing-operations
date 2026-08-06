@@ -48,12 +48,17 @@ _BLOG_RESPONSE_SCHEMA: dict[str, Any] = {
                         ],
                     },
                     "product_id": {"type": "string"},
+                    "source_indices": {
+                        "type": "array",
+                        "items": {"type": "integer"},
+                    },
                     "evidence_note": {"type": "string"},
                 },
                 "required": [
                     "claim",
                     "status",
                     "product_id",
+                    "source_indices",
                     "evidence_note",
                 ],
                 "additionalProperties": False,
@@ -547,6 +552,99 @@ Return strict JSON and no markdown fence, with this exact shape:
                     ).get("webSearchQueries")
                     or []
                 ),
+            }
+        )
+        return result
+
+    def evidence_locked_blog(
+        self,
+        trend: dict[str, Any],
+        products: list[dict[str, Any]],
+        *,
+        reason: str,
+        stores: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Write from snapshot evidence only; no live-search claims are allowed."""
+
+        sources: list[dict[str, Any]] = []
+        seen_urls: set[str] = set()
+        for row in trend.get("evidence") or []:
+            if not isinstance(row, dict):
+                continue
+            url = str(row.get("source_url") or "")
+            if not url.startswith(("https://", "http://")) or url in seen_urls:
+                continue
+            seen_urls.add(url)
+            sources.append(
+                {
+                    "index": len(sources) + 1,
+                    "title": str(row.get("title") or row.get("source_name") or "Evidence source"),
+                    "url": url,
+                    "source_name": row.get("source_name"),
+                    "published_at": row.get("published_at"),
+                    "evidence_type": row.get("evidence_type"),
+                    "summary": row.get("evidence_summary"),
+                    "stance": row.get("supports_or_contradicts"),
+                }
+            )
+        product_context = [
+            {
+                "id": str(product.get("id") or ""),
+                "title": product.get("title"),
+                "brand": product.get("vendor"),
+                "product_type": product.get("product_type"),
+                "description": str(product.get("description") or "")[:700],
+                "tags": list(product.get("tags") or [])[:16],
+                "price": product.get("price"),
+                "currency": product.get("currency"),
+                "product_url": product.get("product_url"),
+            }
+            for product in products[:5]
+        ]
+        prompt = f"""
+You are HULA Hong Kong's fashion journal editor. Write polished British English
+with HULA's intelligent, playful circular-fashion voice. Use exclusively the
+numbered evidence supplied below. Do not browse, infer an unstated fact, or
+invent a publication, metric, runway appearance, celebrity association,
+archive year, rarity, condition, provenance, retailer inventory or availability.
+
+Editorial reason: {reason}
+Stores: {", ".join(stores or ["Online", "HULA Soho", "The Hub"])}
+Trend: {json.dumps({
+    "name": trend.get("name") or trend.get("trend_name"),
+    "momentum": trend.get("momentum"),
+    "why_now": trend.get("why_now"),
+    "commercial_interpretation": trend.get("commercial_interpretation"),
+}, ensure_ascii=False)}
+Numbered evidence: {json.dumps(sources, ensure_ascii=False)}
+Selected HULA products: {json.dumps(product_context, ensure_ascii=False)}
+
+Write 700–1,000 words with short subheadings. A confirmed factual trend claim
+must cite at least one valid numbered source through source_indices. Product
+descriptions may use only supplied product fields. Clearly frame styling advice
+as editorial interpretation. Mention Soho and The Hub equally when both apply.
+Do not put a source list inside body_markdown.
+
+Return strict JSON matching the requested schema and no markdown fence.
+""".strip()
+        payload, text = self._generate_text(
+            prompt,
+            grounded=False,
+            max_output_tokens=12000,
+            thinking_level="low",
+            response_schema=_BLOG_RESPONSE_SCHEMA,
+        )
+        result = extract_json_object(text)
+        result.update(
+            {
+                "generated_at": datetime.now(tz=timezone.utc).isoformat(),
+                "model": self.model,
+                "grounded": False,
+                "evidence_locked": True,
+                "sources": [
+                    {"index": row["index"], "title": row["title"], "url": row["url"]}
+                    for row in sources
+                ],
             }
         )
         return result

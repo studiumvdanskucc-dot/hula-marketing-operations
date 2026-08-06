@@ -1,102 +1,42 @@
 # Google Trends through SerpApi
 
-Build `2026.08.04.1` uses worldwide Google Trends through SerpApi.
-SerpApi makes the Google-facing request and returns structured Trends data, so
-the Streamlit app does not launch another Actor and does not connect to
-`trends.google.com` directly.
+Google Trends is an optional measured component. Missing or low-resolution
+search data is labelled insufficient and is not interpreted as zero demand.
 
-## Create the free key
+## Configure
 
-1. Open <https://serpapi.com/users/sign_up>.
-2. Create a free account.
-3. Open the SerpApi dashboard.
-4. Copy the private API key.
-5. Add it locally to `.env`:
-
-   ```env
-   SERPAPI_API_KEY=your-key
-   ```
-
-6. In Streamlit Community Cloud, add the same value in **App settings →
-   Secrets**:
-
-   ```toml
-   SERPAPI_API_KEY = "your-key"
-   ```
-
-7. In GitHub, add it separately under **Repository → Settings → Secrets and
-   variables → Actions** with the name `SERPAPI_API_KEY`.
-
-Never commit the key to the repository.
-
-## Bounded weekly use
-
-The app omits the country parameter so Google Trends returns worldwide data.
-One full live refresh is bounded by:
-
-- rising-query discovery over `now 7-d`;
-- one-month validation over `today 1-m`;
-- seven-day acceleration for the same capped candidate set.
-
-The small connection test uses one search. A successful full result is cached
-for 24 hours, so repeated refresh clicks during the same day do not spend more
-searches. A compatible last-good result can be displayed for three days if a
-later API call fails, but anything older than 24 hours is labelled stale and
-cannot enter the decision list.
-
-With 24 candidates, each one-month or seven-day pass uses up to six comparison
-requests, plus bounded related-query discovery. Publisher collection can add a
-domain-restricted fallback request for a source that produced too little
-evidence. The exact request count is saved in diagnostics; check the SerpApi
-dashboard against the allowance of the plan you currently use.
-
-## Settings
-
-The supplied defaults are:
+Create a SerpApi key, then add it separately to local `.env`, Streamlit Secrets
+and GitHub Actions Secrets wherever that environment needs to refresh:
 
 ```toml
+SERPAPI_API_KEY = "your-private-key"
 SERPAPI_ENDPOINT = "https://serpapi.com/search.json"
 SERPAPI_TIMEOUT_SECONDS = "75"
 GOOGLE_TRENDS_PROVIDER = "auto"
 GOOGLE_TRENDS_GEO = "WORLDWIDE"
-GOOGLE_TRENDS_TIMEFRAME = "today 1-m"
+GOOGLE_TRENDS_TIMEFRAME = "today 3-m"
 GOOGLE_TRENDS_DISCOVERY_TIMEFRAME = "now 7-d"
 GOOGLE_TRENDS_MAX_TERMS = "24"
-GOOGLE_TRENDS_MAX_DISCOVERY_SEEDS = "2"
 GOOGLE_TRENDS_CACHE_HOURS = "24"
 GOOGLE_TRENDS_STALE_CACHE_DAYS = "3"
 ```
 
-`auto` means SerpApi. It deliberately does not silently return to the failing
-Google webpage route. A manual Google Trends CSV upload remains available in
-Data & Setup if the API allowance is ever exhausted.
+Worldwide requests omit a country parameter. The app validates aliases across
+approximately 90 days so Python can calculate two daily seven-day windows,
+the current slope and a longer baseline.
 
-## Verify it
+## Interpretation
 
-Open **Data & Setup → Connection checks → Test Google Trends (Worldwide)**. A successful
-message must say:
+- Google's 0–100 values are relative to the selected query/time range.
+- Current and previous seven-day means drive week-over-week movement.
+- A 90-day baseline is used only when enough daily coverage exists.
+- Invariant, zero, stale or fewer-than-fourteen-point series return `null`.
+- Charts use only Google's original 0–100 values.
+- Anchor-calibrated internal values are never presented as measured interest.
 
-- market `Worldwide`;
-- provider `SerpApi Google Trends`;
-- a positive timeline-point count;
-- one API search.
+A compatible result under 24 hours is reused as live cache. An older last-good
+result may be displayed as stale for up to three days, but is excluded from
+scoring. A manual Google Trends CSV remains available in **Data & Setup**.
 
-The full refresh status and safe diagnostic report also record the provider,
-market, term count, request count and cache age without including the API key.
-Build 2026.08.04.1 uses Google cache schema 3.0, so the first refresh ignores
-the old 12-term cache and collects the expanded candidate set.
-The plotted line is always Google's original 0–100 index. Anchor-calibrated
-values are retained only for internal cross-query ranking. Low-resolution,
-plateau-heavy, isolated-spike, out-of-range and legacy calibrated-only series
-are counted in diagnostics and withheld from charts.
-
-## Common errors
-
-- `SERPAPI_API_KEY is missing`: add the key in the environment where the app is
-  running and reboot the Streamlit app.
-- `rejected the API key`: copy a new key from the SerpApi dashboard and replace
-  the old secret.
-- `request allowance`: wait for the plan allowance to reset or use the manual
-  Trends CSV importer.
-- An Apify 402 memory error now concerns X searches only. Google Trends uses no
-  Apify memory in this build.
+Use **Test Google Trends (Worldwide)** to verify provider, market, timeline
+points and request count without exposing the key.

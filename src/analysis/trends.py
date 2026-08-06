@@ -413,6 +413,11 @@ def sanitize_snapshot_trends(snapshot: dict[str, Any]) -> dict[str, Any]:
 
     trends = list(snapshot.get("trends") or [])
     snapshot_meta = snapshot.get("meta") or {}
+    methodology_v2 = str(
+        snapshot.get("methodology_version")
+        or snapshot_meta.get("methodology_version")
+        or ""
+    ) == "2.0"
     audit = list(snapshot_meta.get("filtered_terms") or [])
     display_schema_current = str(
         snapshot_meta.get("google_display_schema_version") or ""
@@ -475,7 +480,8 @@ def sanitize_snapshot_trends(snapshot: dict[str, Any]) -> dict[str, Any]:
                 normalised["series_issue"] = str(quality["issue"])
                 if not quality["score_ready"]:
                     normalised["google_score"] = None
-                    normalised["decision_ready"] = False
+                    if not methodology_v2:
+                        normalised["decision_ready"] = False
 
             has_google = normalised.get("google_score") is not None
             has_confirmation = any(
@@ -488,11 +494,11 @@ def sanitize_snapshot_trends(snapshot: dict[str, Any]) -> dict[str, Any]:
                     "visual_score",
                 )
             )
-            if normalised.get("decision_ready") and not (
+            if not methodology_v2 and normalised.get("decision_ready") and not (
                 has_google and has_confirmation
             ):
                 normalised["decision_ready"] = False
-            if "decision_ready" in normalised:
+            if not methodology_v2 and "decision_ready" in normalised:
                 normalised["missing_components"] = [
                     label
                     for component, label in (
@@ -1223,7 +1229,7 @@ def score_google_windows(
     *,
     audit: list[dict[str, str]] | None = None,
 ) -> list[dict[str, Any]]:
-    """Combine one-month persistence with the last seven days of acceleration."""
+    """Combine 90-day context with the last seven days of acceleration."""
 
     context_rows = score_google_series(context_series, audit=audit)
     recent_rows = score_google_series(recent_series, audit=audit)

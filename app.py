@@ -15,6 +15,7 @@ import streamlit as st
 from PIL import Image, ImageChops
 
 from src.analysis.freshness import parse_utc
+from src.analysis.evidence_scoring import upgrade_snapshot_to_v2
 from src.analysis.listening import (
     build_listening_plan,
 )
@@ -38,6 +39,7 @@ from src.connectors.commercial_sources import (
 from src.connectors.gemini_research import GeminiResearchConnector
 from src.connectors.google_trends import GoogleTrendsConnector
 from src.connectors.openrouter import OpenRouterConnector
+from src.connectors.openai_responses import OpenAIResponsesConnector
 from src.connectors.shopify import ShopifyConnector
 from src.connectors.supabase_store import SupabaseStore
 from src.demo_data import demo_snapshot
@@ -64,7 +66,7 @@ PALETTE = [PINK, INK, LILAC, "#e8a846", "#6f8e84", "#d46262"]
 CATALOGUE_CSV = "Upload CSV"
 CATALOGUE_API = "Shopify API"
 CATALOGUE_SELECTOR_KEY = "catalogue_source_selector_v2"
-APP_BUILD = "2026.08.04.1"
+APP_BUILD = "2026.08.06.2"
 DECISION_COLORS = {
     "Act now": PINK,
     "Test this week": "#e8a846",
@@ -242,20 +244,20 @@ def business_decision(trend: dict) -> str:
 
     if not trend.get("decision_ready"):
         return "Watch"
-    score = float(trend.get("score") or 0)
-    sources = set(trend.get("sources") or [])
-    cross_source = "Google Trends" in sources and bool(
-        sources
-        & {
-            "Open X topics",
-            "Commercial reports",
-            "Instagram hashtag signal",
-        }
-    )
+    score = float(trend.get("confidence_score") or trend.get("score") or 0)
+    completeness = float(trend.get("data_completeness_score") or 0)
+    domains = int(trend.get("independent_domain_count") or 0)
+    evidence = int(trend.get("evidence_count") or 0)
     confidence = str(trend.get("confidence") or "")
-    if score >= 75 and cross_source and confidence in {"High", "Medium"}:
+    if (
+        score >= 75
+        and completeness >= 65
+        and domains >= 3
+        and evidence >= 4
+        and confidence == "High"
+    ):
         return "Act now"
-    if score >= 55:
+    if score >= 55 and completeness >= 40 and domains >= 2 and evidence >= 3:
         return "Test this week"
     return "Watch"
 
@@ -264,7 +266,7 @@ def decision_legend() -> None:
     st.markdown(
         f"""
         <div class="decision-key">
-          <div class="decision-item"><strong><span class="decision-swatch" style="background:{DECISION_COLORS['Act now']}"></span>ACT NOW</strong>Strong signal confirmed across search and conversation.</div>
+          <div class="decision-item"><strong><span class="decision-swatch" style="background:{DECISION_COLORS['Act now']}"></span>ACT NOW</strong>High confidence, current evidence and at least three independent domains.</div>
           <div class="decision-item"><strong><span class="decision-swatch" style="background:{DECISION_COLORS['Test this week']}"></span>TEST THIS WEEK</strong>Promising enough for a small content or merchandising test.</div>
           <div class="decision-item"><strong><span class="decision-swatch" style="background:{DECISION_COLORS['Watch']}"></span>WATCH</strong>Keep monitoring; evidence is not strong enough to prioritise.</div>
         </div>
@@ -285,7 +287,10 @@ def google_direction(trend: dict) -> str:
 def priority_rows(trends: list[dict], *, limit: int = 30) -> pd.DataFrame:
     rows = sorted(
         trends,
-        key=lambda row: float(row.get("score") or 0),
+        key=lambda row: (
+            float(row.get("confidence_score") or row.get("score") or 0),
+            float(row.get("data_completeness_score") or 0),
+        ),
         reverse=True,
     )[:limit]
     return pd.DataFrame(
@@ -294,14 +299,12 @@ def priority_rows(trends: list[dict], *, limit: int = 30) -> pd.DataFrame:
                 "Rank": index + 1,
                 "Trend": row.get("name"),
                 "Decision": business_decision(row).upper(),
-                "Priority": f"{float(row.get('score') or 0):.0f}/100",
-                "Google": google_direction(row),
-                "Publishers": int(row.get("publisher_count") or 0),
-                "Instagram hashtag": (
-                    f"#{row.get('instagram_hashtag')}"
-                    if row.get("instagram_hashtag")
-                    else "Not collected"
-                ),
+                "Confidence": f"{float(row.get('confidence_score') or row.get('score') or 0):.0f}/100",
+                "Coverage": f"{float(row.get('data_completeness_score') or 0):.0f}%",
+                "HULA opportunity": f"{float(row.get('hula_opportunity_score') or 0):.0f}/100",
+                "Momentum": str(row.get("momentum") or "insufficient data").title(),
+                "Evidence": int(row.get("evidence_count") or 0),
+                "Domains": int(row.get("independent_domain_count") or 0),
                 "Missing evidence": ", ".join(row.get("missing_components") or []) or "None",
             }
             for index, row in enumerate(rows)
@@ -398,14 +401,15 @@ def trend_cards(trends: list[dict], count: int = 4) -> None:
     columns = st.columns(min(count, 4))
     for index, trend in enumerate(trends[:count]):
         with columns[index % len(columns)]:
-            sources = " + ".join(trend.get("sources", [])) or "Demo sources"
+            sources = " + ".join(trend.get("sources", [])[:4]) or "Evidence pending"
             st.markdown(
                 f"""
                 <div class="trend-card {'hot' if index == 0 else ''}">
-                  <div class="trend-rank">#{index + 1} · {html.escape(str(trend.get('stage', '')))}</div>
+                  <div class="trend-rank">#{index + 1} · {html.escape(str(trend.get('momentum', 'insufficient data')).upper())}</div>
                   <div class="trend-name">{html.escape(str(trend.get('name', '')))}</div>
-                  <div class="trend-score">{float(trend.get('score', 0)):.0f}<span> / 100</span></div>
-                  <div style="margin:.7rem 0"><span class="pill pink">{html.escape(str(trend.get('confidence', '')))} confidence</span></div>
+                  <div class="trend-score">{float(trend.get('confidence_score') or trend.get('score') or 0):.0f}<span> / 100 confidence</span></div>
+                  <div style="margin:.7rem 0"><span class="pill pink">{float(trend.get('data_completeness_score') or 0):.0f}% evidence coverage</span></div>
+                  <div class="micro">HULA opportunity · {float(trend.get('hula_opportunity_score') or 0):.0f}/100</div>
                   <div class="micro">{html.escape(sources)}</div>
                 </div>
                 """,
@@ -533,7 +537,11 @@ def chart_or_quality_note(
 def this_week(snapshot: dict) -> None:
     meta = snapshot.get("meta", {})
     trends = snapshot.get("trends", [])
-    ready_trends = [trend for trend in trends if trend.get("decision_ready")]
+    ready_trends = sorted(
+        [trend for trend in trends if trend.get("decision_ready")],
+        key=lambda row: float(row.get("hula_opportunity_score") or 0),
+        reverse=True,
+    )
     display_trends = ready_trends or trends
     updated = hk_time(str(meta.get("generated_at", "")))
     week_label = f"WEEK {updated.isocalendar().week} · GLOBAL FASHION"
@@ -544,9 +552,7 @@ def this_week(snapshot: dict) -> None:
     )
     mode_banner(meta)
     top_score = float(display_trends[0].get("score", 0)) if display_trends else 0
-    high_confidence = sum(
-        1 for trend in ready_trends if trend.get("confidence") == "High"
-    )
+    high_confidence = sum(1 for trend in ready_trends if trend.get("confidence") in {"High", "Medium"})
     unique_products = len({row.get("product_id") for row in snapshot.get("recommendations", [])})
     metrics = st.columns(4)
     metrics[0].metric(
@@ -557,7 +563,7 @@ def this_week(snapshot: dict) -> None:
     metrics[1].metric(
         "Cross-source trends",
         high_confidence,
-        "search + commercial confirmation",
+        "independent evidence domains",
     )
     metrics[2].metric("Promotable products", unique_products, "in-stock catalogue matches")
     metrics[3].metric("Updated", updated.strftime("%d %b · %H:%M"), "Hong Kong time")
@@ -565,8 +571,8 @@ def this_week(snapshot: dict) -> None:
     section_header("01 · Signal board", "This week's strongest opportunities")
     if not ready_trends and trends:
         st.warning(
-            "No trend currently has both fresh Google demand and social or "
-            "commercial confirmation. The cards below are a watchlist, not an "
+            "No trend currently clears the evidence-count, domain and recency gates. "
+            "The cards below are a watchlist, not an "
             "action list."
         )
     trend_cards(display_trends, 4)
@@ -577,7 +583,7 @@ def this_week(snapshot: dict) -> None:
             "The complete list is in Data & Setup."
         )
 
-    section_header("02 · Momentum", "Fresh Google movement over the last month")
+    section_header("02 · Momentum", "Measured Google movement from the stored timeline")
     chart_or_quality_note(display_trends[:5])
     st.caption(
         "The chart shows Google's original 0–100 index with light smoothing, not "
@@ -603,7 +609,7 @@ def this_week(snapshot: dict) -> None:
     else:
         st.info(
             "Catalogue recommendations are held back until at least one trend "
-            "has complete, fresh cross-source evidence."
+            "has enough current, independent evidence."
         )
 
     section_header("04 · Direction", "The editorial idea behind the numbers")
@@ -616,7 +622,7 @@ def this_week(snapshot: dict) -> None:
               <div class="label">Lead story</div>
               <h3>{html.escape(str(top.get('name', 'A trend worth watching')))}</h3>
               <p>{html.escape(str(top.get('why_now', 'Connect live sources to generate an evidence-led rationale.')))}</p>
-              <div class="pill pink">{html.escape(str(top.get('stage', '')))}</div>
+              <div class="pill pink">{html.escape(str(top.get('momentum', '')))}</div>
               <div class="pill">{html.escape(str(top.get('category', '')))}</div>
             </div>
             """,
@@ -636,7 +642,7 @@ def trend_radar(snapshot: dict) -> None:
     page_header(
         "TREND RADAR · EXTERNAL SIGNALS",
         "Know what to act on first.",
-        "A plain-language priority view for this week. The score combines the available search, open-conversation and expert evidence; the colour tells the team what to do next.",
+        "A traceable priority view for this week. Python calculates confidence from stored editorial, cross-source, search, social, runway and retail evidence.",
     )
     meta = snapshot.get("meta", {})
     mode_banner(meta)
@@ -645,14 +651,6 @@ def trend_radar(snapshot: dict) -> None:
             "No specific, actionable trend rows are available. Broad labels were removed; run a refresh to collect a new set."
         )
         return
-    google_status = str((meta.get("source_status") or {}).get("google_trends", ""))
-    if not google_status.startswith(("LIVE", "PARTIAL")) and "manual CSV" not in google_status:
-        st.warning(
-            "Fresh Google search evidence was unavailable on the last refresh. "
-            "Unvalidated terms stay in the watchlist and cannot receive an "
-            "'Act now' or 'Test this week' recommendation."
-        )
-
     commercial_collection = meta.get("commercial_collection") or {}
     publisher_status = commercial_collection.get("source_status") or {}
     publisher_inventory = publisher_inventory_rows(snapshot)
@@ -671,8 +669,8 @@ def trend_radar(snapshot: dict) -> None:
         int(commercial_collection.get("named_trends") or len(publisher_inventory)),
     )
     coverage[2].metric(
-        "Google-validated terms",
-        int(raw_counts.get("google_terms") or 0),
+        "Evidence-backed trends",
+        sum(int(row.get("evidence_count") or 0) > 0 for row in trends),
     )
     coverage[3].metric("Action-ready trends", len(ready_trends))
 
@@ -699,7 +697,7 @@ def trend_radar(snapshot: dict) -> None:
         st.caption(
             "This is the discovery inventory, not an automatic recommendation. Every "
             "row links back to an approved publisher page. The separate action list "
-            "below still requires fresh Google demand plus another confirming source."
+            "below applies evidence-count, independent-domain and recency gates."
         )
 
     section_header("Priority view", "What to do with each trend")
@@ -712,12 +710,12 @@ def trend_radar(snapshot: dict) -> None:
         )
     else:
         st.info(
-            "There are no decision-ready trends yet. Run a fresh Google + "
-            "social refresh; incomplete rows are retained below only for diagnosis."
+            "There are no decision-ready trends yet. Run a fresh evidence collection; "
+            "incomplete rows are retained below only for diagnosis."
         )
     st.caption(
-        "Only rows with fresh Google demand plus at least one X, commercial-report "
-        "or Instagram-hashtag confirmation appear in this decision list."
+        "Missing components are not scored as zero. Available weights are redistributed, "
+        "while evidence coverage remains visible and confidence caps still apply."
     )
 
     decisions = [business_decision(trend) for trend in ready_trends]
@@ -736,11 +734,14 @@ def trend_radar(snapshot: dict) -> None:
                     [
                         {
                             "Trend": trend.get("name"),
-                            "Current score": f"{float(trend.get('score') or 0):.0f}/100",
+                            "Confidence": f"{float(trend.get('confidence_score') or trend.get('score') or 0):.0f}/100",
+                            "Coverage": f"{float(trend.get('data_completeness_score') or 0):.0f}%",
+                            "Evidence": int(trend.get("evidence_count") or 0),
+                            "Domains": int(trend.get("independent_domain_count") or 0),
                             "Missing evidence": ", ".join(
                                 trend.get("missing_components") or []
                             )
-                            or "Stale Google evidence",
+                            or "Confidence gate not yet cleared",
                             "Status": "Not decision-ready",
                         }
                         for trend in watchlist
@@ -754,20 +755,21 @@ def trend_radar(snapshot: dict) -> None:
                 "look like a complete recommendation."
             )
 
-    with st.expander("Analyst detail · raw growth and evidence checks"):
+    with st.expander("Analyst detail · measurements and evidence checks"):
         technical = pd.DataFrame(
             [
                 {
                     "Trend": trend.get("name"),
-                    "Search vs baseline": f"{float(trend.get('search_momentum', 0)):+.0f}%",
-                    "X posts week on week": f"{float(trend.get('mention_growth', 0)):+.0f}%",
-                    "Independent authors week on week": f"{float(trend.get('author_growth', 0)):+.0f}%",
-                    "Current independent authors": int(trend.get("unique_authors", 0)),
-                    "Confirming publishers": int(trend.get("publisher_count", 0)),
-                    "Explicit article/report signals": int(
-                        trend.get("commercial_article_count", 0)
+                    "Google week on week": (
+                        f"{float((trend.get('google_trends_metrics') or {}).get('week_over_week_change_percent')):+.0f}%"
+                        if (trend.get("google_trends_metrics") or {}).get("week_over_week_change_percent") is not None
+                        else "Not measured"
                     ),
-                    "Evidence quality": f"{float(trend.get('evidence_quality', 0)):.0f}/100",
+                    "X posts week on week": f"{float(trend.get('mention_growth', 0)):+.0f}%",
+                    "Independent domains": int(trend.get("independent_domain_count") or 0),
+                    "Evidence items": int(trend.get("evidence_count") or 0),
+                    "Coverage": f"{float(trend.get('data_completeness_score') or 0):.0f}%",
+                    "Momentum": str(trend.get("momentum") or "insufficient data"),
                 }
                 for trend in trends
             ]
@@ -775,8 +777,8 @@ def trend_radar(snapshot: dict) -> None:
         if not technical.empty:
             st.dataframe(technical, hide_index=True, width="stretch")
         st.caption(
-            "Very large percentages often happen when the previous week had only one or two mentions. "
-            "They are useful evidence, but they are not shown as chart axes."
+            "Very large percentages can follow a tiny previous-week baseline. They remain "
+            "traceable measurements, but confidence also depends on independent evidence."
         )
 
     section_header("Deep dive", "Inspect one signal")
@@ -810,41 +812,45 @@ def trend_radar(snapshot: dict) -> None:
         st.write(selected.get("why_now"))
         st.markdown(
             f"""
-            <div class="score-row"><span>Combined signal</span><strong>{float(selected.get('score', 0)):.0f}</strong></div>
-            <div class="score-row"><span>Google component</span><strong>{component(selected.get('google_score'))}</strong></div>
-            <div class="score-row"><span>Open X component</span><strong>{component(selected.get('x_score'))}</strong></div>
-            <div class="score-row"><span>Commercial-report component</span><strong>{component(selected.get('commercial_score'))}</strong></div>
-            <div class="score-row"><span>Instagram hashtag component</span><strong>{component(selected.get('instagram_score'))}</strong></div>
-            <div class="score-row"><span>Confirming publishers</span><strong>{int(selected.get('publisher_count') or 0)}</strong></div>
-            <div class="score-row"><span>Independent authors</span><strong>{int(selected.get('unique_authors') or 0)}</strong></div>
-            <div class="score-row"><span>Evidence quality</span><strong>{float(selected.get('evidence_quality') or 0):.0f}</strong></div>
-            <div class="score-row"><span>Confidence</span><strong>{html.escape(str(selected.get('confidence', '')))}</strong></div>
+            <div class="score-row"><span>Confidence</span><strong>{float(selected.get('confidence_score') or selected.get('score') or 0):.0f}</strong></div>
+            <div class="score-row"><span>Evidence coverage</span><strong>{float(selected.get('data_completeness_score') or 0):.0f}%</strong></div>
+            <div class="score-row"><span>HULA opportunity</span><strong>{float(selected.get('hula_opportunity_score') or 0):.0f}</strong></div>
+            <div class="score-row"><span>Editorial</span><strong>{component((selected.get('score_breakdown') or {}).get('editorial'))}</strong></div>
+            <div class="score-row"><span>Cross-source</span><strong>{component((selected.get('score_breakdown') or {}).get('cross_source'))}</strong></div>
+            <div class="score-row"><span>Google Trends</span><strong>{component((selected.get('score_breakdown') or {}).get('google_trends'))}</strong></div>
+            <div class="score-row"><span>Social</span><strong>{component((selected.get('score_breakdown') or {}).get('social'))}</strong></div>
+            <div class="score-row"><span>Runway / celebrity</span><strong>{component((selected.get('score_breakdown') or {}).get('runway_celebrity'))}</strong></div>
+            <div class="score-row"><span>Commercial availability</span><strong>{component((selected.get('score_breakdown') or {}).get('commercial'))}</strong></div>
+            <div class="score-row"><span>Independent domains</span><strong>{int(selected.get('independent_domain_count') or 0)}</strong></div>
+            <div class="score-row"><span>Evidence items</span><strong>{int(selected.get('evidence_count') or 0)}</strong></div>
+            <div class="score-row"><span>Confidence band</span><strong>{html.escape(str(selected.get('confidence', '')))}</strong></div>
             """,
             unsafe_allow_html=True,
         )
         st.caption(
-            "Evidence quality penalises duplicated, promotional and author-dominated conversation. "
-            "A component that was not collected stays explicitly missing; the app never converts it to zero."
+            "Duplicate or syndicated evidence is excluded. An uncollected component stays "
+            "explicitly missing; the app never converts it to zero."
         )
 
-    publisher_evidence = list(selected.get("commercial_evidence") or [])
+    publisher_evidence = list(selected.get("evidence") or [])
     if publisher_evidence:
         section_header(
-            "Publisher evidence",
-            "The exact pages that explicitly named this trend",
+            "Traceable evidence",
+            "Every source and measurement behind this trend",
         )
         evidence_table = pd.DataFrame(
             [
                 {
-                    "Publisher": row.get("publisher"),
-                    "Explicit label": row.get("explicit_label"),
-                    "Article / report": row.get("article_title"),
+                    "Source": row.get("source_name"),
+                    "Type": row.get("evidence_type"),
+                    "Article / measurement": row.get("title"),
                     "Published": (
                         str(row.get("published_at") or "")[:10]
                         or "Date not exposed"
                     ),
-                    "Evidence type": row.get("evidence_kind"),
-                    "Source": row.get("url"),
+                    "Position": row.get("supports_or_contradicts"),
+                    "Summary": row.get("evidence_summary"),
+                    "URL": row.get("source_url"),
                 }
                 for row in publisher_evidence
             ]
@@ -854,14 +860,19 @@ def trend_radar(snapshot: dict) -> None:
             hide_index=True,
             width="stretch",
             column_config={
-                "Source": st.column_config.LinkColumn("Source page"),
+                "URL": st.column_config.LinkColumn("Source page"),
             },
         )
         st.caption(
-            "Evidence must come from a publisher-owned title, selected editorial "
-            "trend heading, runway taxonomy, ranked product or an explicit quantified "
-            "data statement. Ordinary unlabelled prose and shopping cards are excluded."
+            "All URLs are stored with the weekly snapshot. Contradictory evidence is "
+            "retained and lowers confidence; missing search data is labelled insufficient."
         )
+
+    warnings = list(selected.get("warnings") or [])
+    if warnings:
+        with st.expander(f"Scoring warnings ({len(warnings)})"):
+            for warning in warnings:
+                st.write(f"• {warning}")
 
     if selected.get("instagram_hashtag"):
         st.caption(
@@ -913,8 +924,8 @@ def product_match_page(snapshot: dict) -> None:
     mode_banner(snapshot.get("meta", {}))
     if not trends:
         st.info(
-            "Product matching opens when at least one trend has fresh Google "
-            "demand plus social or commercial confirmation."
+            "Product matching opens when at least one trend clears the current-evidence, "
+            "independent-domain and minimum-confidence gates."
         )
         return
     selected_name = product_trend_picker(trends)
@@ -1157,8 +1168,8 @@ def blog_download_markdown(blog: dict) -> str:
 ## Editorial QA notes
 {notes or '- No additional notes.'}
 
-## Research sources
-{sources or '- No grounded sources were returned.'}
+## Evidence sources
+{sources or '- No stored evidence sources were available.'}
 """
 
 
@@ -1169,15 +1180,15 @@ def weekly_blog(snapshot: dict, settings: Settings) -> None:
         if trend.get("decision_ready")
     ]
     page_header(
-        "WEDNESDAY BLOG · GEMINI RESEARCH",
+        "WEDNESDAY BLOG · EVIDENCE-LOCKED",
         "Turn this week's signal into a story worth reading.",
-        "Choose the trend, products and business reason. Gemini researches live public sources; uncertain celebrity, runway and archive claims stay outside the publishable draft.",
+        "Choose the trend, products and business reason. The writer may use only evidence and URLs already stored in this weekly snapshot.",
     )
     mode_banner(snapshot.get("meta", {}))
     if not trends:
         st.info(
-            "A researched draft can be generated once a trend has fresh Google "
-            "demand plus social or commercial confirmation."
+            "A draft can be generated once a trend clears the evidence-count, "
+            "independent-domain and recency gates."
         )
         return
 
@@ -1225,32 +1236,44 @@ def weekly_blog(snapshot: dict, settings: Settings) -> None:
     )
     selected_products = [products[product_id] for product_id in selected_ids]
     if st.button(
-        "Generate researched blog",
+        "Generate evidence-locked blog",
         type="primary",
         disabled=not selected_products,
     ):
         with st.spinner(
-            "Researching the trend, exact products, runway context and verified worn-by references…"
+            "Writing from the stored evidence and selected product facts…"
         ):
             try:
-                if not settings.gemini_configured:
-                    raise RuntimeError(
-                        "Gemini is not configured in this deployed copy."
+                if settings.openai_configured:
+                    connector = OpenAIResponsesConnector(
+                        settings.openai_api_key,
+                        api_url=settings.openai_api_url,
+                        luna_model=settings.openai_luna_model,
+                        terra_model=settings.openai_terra_model,
+                        sol_model=settings.openai_sol_model,
+                        timeout_seconds=settings.openai_timeout_seconds,
                     )
-                blog = generate_researched_blog(
-                    GeminiResearchConnector(
+                    source = settings.openai_sol_model
+                elif settings.gemini_configured:
+                    connector = GeminiResearchConnector(
                         settings.gemini_api_key,
                         model=settings.gemini_model,
                         api_url=settings.gemini_api_url,
                         timeout_seconds=settings.gemini_timeout_seconds,
-                        grounding_enabled=settings.gemini_grounding_enabled,
-                    ),
+                        grounding_enabled=False,
+                    )
+                    source = settings.gemini_model
+                else:
+                    raise RuntimeError(
+                        "No writing model is configured in this deployed copy."
+                    )
+                blog = generate_researched_blog(
+                    connector,
                     trend,
                     selected_products,
                     reason=reason,
                     stores=stores,
                 )
-                source = settings.gemini_model
                 st.session_state.pop("blog_generation_error", None)
             except Exception as exc:
                 blog = fallback_blog(
@@ -1302,7 +1325,7 @@ def weekly_blog(snapshot: dict, settings: Settings) -> None:
     section_header("Editable draft", str(blog.get("title") or "HULA weekly edit"))
     st.caption(
         f"Generated with {blog.get('model') or st.session_state.get('blog_source', 'the configured model')} · "
-        f"{'grounded public-web research' if blog.get('grounded') else 'unresearched fallback'}"
+        f"{'stored-evidence only' if blog.get('evidence_locked') else 'safe fallback'}"
     )
     title = st.text_input(
         "Title",
@@ -1359,8 +1382,8 @@ def weekly_blog(snapshot: dict, settings: Settings) -> None:
     error = st.session_state.get("blog_generation_error")
     if error:
         st.error(
-            "Gemini research was unavailable, so the displayed draft contains "
-            f"no web-derived claims. {error}"
+            "The configured writer was unavailable, so the safe fallback contains "
+            f"no unsupported model-derived claims. {error}"
         )
 
     claims = list(blog.get("claims") or [])
@@ -1375,7 +1398,7 @@ def weekly_blog(snapshot: dict, settings: Settings) -> None:
         "Needs review",
         sum(claim.get("status") != "confirmed" for claim in claims),
     )
-    metrics[2].metric("Grounded sources", len(sources))
+    metrics[2].metric("Stored sources", len(sources))
     if claims:
         st.dataframe(
             pd.DataFrame(
@@ -1500,6 +1523,14 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
             catalogue_detail,
         ),
         (
+            "OpenAI Responses",
+            str(status.get("openai", "configured" if settings.openai_configured else "not configured")),
+            (
+                f"Luna / Terra / Sol · credentials: "
+                f"{'added' if settings.openai_configured else 'missing'}"
+            ),
+        ),
+        (
             "OpenRouter",
             str(status.get("openrouter", "configured" if settings.openrouter_configured else "not configured")),
             f"Credentials: {'added' if settings.openrouter_configured else 'missing'}",
@@ -1517,7 +1548,7 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
             f"Credentials: {'added' if settings.supabase_configured else 'missing'}",
         ),
         (
-            "Gemini research",
+            "Gemini writer fallback",
             str(
                 status.get(
                     "gemini",
@@ -1554,7 +1585,7 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
     section_header("Diagnostics", "Expected hybrid inputs versus genuine failures")
     st.write(
         "The table separates settings loaded **now** from the status saved by the **last refresh**. "
-        "An uploaded catalogue is intentionally hybrid; it is not an OpenRouter error."
+        "An uploaded catalogue is intentionally hybrid; it is not a model or source failure."
     )
     diagnostics = source_diagnostic_rows(
         meta,
@@ -1566,6 +1597,7 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
         commercial_configured=settings.commercial_sources_enabled,
         supabase_configured=settings.supabase_configured,
         gemini_configured=settings.gemini_configured,
+        openai_configured=settings.openai_configured,
     )
     st.dataframe(pd.DataFrame(diagnostics), hide_index=True, width="stretch")
     report = diagnostic_report(
@@ -1582,6 +1614,8 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
         commercial_configured=settings.commercial_sources_enabled,
         supabase_configured=settings.supabase_configured,
         gemini_configured=settings.gemini_configured,
+        openai_configured=settings.openai_configured,
+        openai_sol_model=settings.openai_sol_model,
     )
     st.download_button(
         "Download safe diagnostic report",
@@ -2080,16 +2114,31 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
                     "The rolling query plan requires that Actor's Advanced Search input fields."
                 )
     with tests[2]:
-        if st.button("Test OpenRouter", disabled=not settings.openrouter_configured, width="stretch"):
+        primary_ai_configured = settings.openai_configured or settings.openrouter_configured
+        primary_ai_label = "OpenAI Responses" if settings.openai_configured else "OpenRouter"
+        if st.button(f"Test {primary_ai_label}", disabled=not primary_ai_configured, width="stretch"):
             try:
-                result = OpenRouterConnector(
-                    settings.openrouter_api_key,
-                    settings.openrouter_model,
-                    settings.openrouter_api_url,
-                    settings.openrouter_timeout,
-                    settings.openrouter_site_url,
-                    settings.openrouter_app_name,
-                ).test_connection()
+                if settings.openai_configured:
+                    connector = OpenAIResponsesConnector(
+                        settings.openai_api_key,
+                        api_url=settings.openai_api_url,
+                        luna_model=settings.openai_luna_model,
+                        terra_model=settings.openai_terra_model,
+                        sol_model=settings.openai_sol_model,
+                        timeout_seconds=settings.openai_timeout_seconds,
+                    )
+                    secret = settings.openai_api_key
+                else:
+                    connector = OpenRouterConnector(
+                        settings.openrouter_api_key,
+                        settings.openrouter_model,
+                        settings.openrouter_api_url,
+                        settings.openrouter_timeout,
+                        settings.openrouter_site_url,
+                        settings.openrouter_app_name,
+                    )
+                    secret = settings.openrouter_api_key
+                result = connector.test_connection()
                 st.session_state.openrouter_test_result = {
                     "ok": True,
                     "detail": f"Connected successfully to {result.get('model')}.",
@@ -2097,7 +2146,7 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
             except Exception as exc:
                 st.session_state.openrouter_test_result = {
                     "ok": False,
-                    "detail": safe_error(exc, [settings.openrouter_api_key]),
+                    "detail": safe_error(exc, [secret]),
                 }
         openrouter_test = st.session_state.get("openrouter_test_result")
         if isinstance(openrouter_test, dict):
@@ -2214,7 +2263,7 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
 
     with platform_tests[3]:
         if st.button(
-            "Test Gemini research",
+            "Test Gemini fallback",
             disabled=not settings.gemini_configured,
             width="stretch",
         ):
@@ -2224,7 +2273,7 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
                     model=settings.gemini_model,
                     api_url=settings.gemini_api_url,
                     timeout_seconds=settings.gemini_timeout_seconds,
-                    grounding_enabled=settings.gemini_grounding_enabled,
+                    grounding_enabled=False,
                 ).test_connection()
                 st.session_state.gemini_test_result = {
                     "ok": True,
@@ -2241,9 +2290,8 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
                 str(gemini_test.get("detail", "No diagnostic detail was returned."))
             )
         st.caption(
-            "Checks Gemini text generation and JSON output. The live Google "
-            "Search grounding used by researched blogs additionally requires "
-            "a billing-enabled Gemini project."
+            "Checks the optional fallback writer. Blog generation is evidence-locked "
+            "and does not use live Search grounding."
         )
 
     if isinstance(commercial_test, dict):
@@ -2268,13 +2316,16 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
             )
 
     section_header("Live refresh", "Run the full evidence pipeline")
-    include_llm = st.checkbox("Use Qwen to label and enrich trends", value=settings.openrouter_configured)
+    include_llm = st.checkbox(
+        "Use the configured model to merge aliases and write evidence-led summaries",
+        value=settings.openai_configured or settings.openrouter_configured,
+    )
     include_editorial = st.checkbox(
-        "Generate the researched Wednesday blog after ranking",
-        value=settings.gemini_configured,
+        "Generate the evidence-locked Wednesday blog after ranking",
+        value=settings.openai_configured or settings.gemini_configured,
         help=(
-            "Gemini only researches the highest decision-ready trend after the "
-            "deterministic ranking is complete."
+            "The writer receives the highest decision-ready trend, its stored evidence "
+            "and selected products only after deterministic ranking is complete."
         ),
     )
     catalog_source, catalog_products = catalogue_refresh_args(snapshot)
@@ -2364,6 +2415,7 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
                 updated_meta["source_status"] = {**updated_meta.get("source_status", {}), "google_trends": "manual CSV"}
                 updated_meta["google_display_schema_version"] = "2.0"
                 updated_snapshot["meta"] = updated_meta
+                updated_snapshot = upgrade_snapshot_to_v2(updated_snapshot)
                 save_snapshot(updated_snapshot, settings.snapshot_path)
                 st.session_state.snapshot = updated_snapshot
                 st.success("Manual search data applied.")
@@ -2372,37 +2424,54 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
                 st.error(str(exc))
 
     section_header("External signal", "How the fashion trend score is assembled")
-    signal_method = st.columns(4)
-    for column, number, title, copy in [
-        (signal_method[0], "35%", "Google Trends worldwide", "Global search-demand momentum."),
-        (signal_method[1], "20%", "Open X topics", "Independent-author and post growth across broad topic searches."),
-        (signal_method[2], "35%", "Commercial reports", "Explicit trend names in approved website/report titles and headings."),
-        (signal_method[3], "10%", "Instagram hashtags", "Aggregate reach and posts/day for already-qualified trend hashtags."),
-    ]:
-        with column:
-            st.metric(title, number)
-            st.caption(copy)
+    score_parts = [
+        ("25%", "Editorial evidence", "Authority-weighted, relevant and recent articles."),
+        ("20%", "Cross-source", "Independent domains plus evidence-type diversity."),
+        ("20%", "Google Trends", "Current interest, weekly growth, slope and baseline breakout."),
+        ("15%", "Social momentum", "Growth, velocity, creator and platform diversity."),
+        ("10%", "Runway / celebrity", "Recent recurrence and independently reported adoption."),
+        ("10%", "Commercial", "Current availability across independent retail channels."),
+    ]
+    for start in range(0, len(score_parts), 3):
+        signal_method = st.columns(3)
+        for column, (number, title, copy) in zip(signal_method, score_parts[start : start + 3]):
+            with column:
+                st.metric(title, number)
+                st.caption(copy)
     st.caption(
         "The score automatically reweights across sources that actually supplied evidence; an unavailable "
-        "source is never treated as a zero. X evidence is reduced when duplicates, promotional posts "
-        "or one dominant author make a topic less trustworthy."
+        "source is never treated as a zero. Evidence coverage remains separate, and caps prevent one "
+        "source, one launch or outdated evidence from looking more certain than it is."
     )
 
     section_header("Product opportunity", "How the catalogue recommendation score works")
-    method = st.columns(4)
+    method = st.columns(3)
     for column, number, title, copy in [
-        (method[0], "45%", "Trend strength", "Google momentum, X growth and cross-source agreement."),
-        (method[1], "35%", "Catalogue fit", "Text similarity across title, type, brand, tags and description."),
-        (method[2], "15%", "Content readiness", "In stock, image present and enough product information."),
-        (method[3], "5%", "Freshness", "A light preference for recently added pieces."),
+        (method[0], "65%", "Trend confidence", "The evidence-based external score above."),
+        (method[1], "25%", "HULA catalogue fit", "Similarity to current in-stock product metadata."),
+        (method[2], "10%", "Resale suitability", "How naturally the trend works in luxury resale."),
     ]:
         with column:
             st.metric(title, number)
             st.caption(copy)
     st.markdown(
-        '<div class="method-note"><strong>Data minimisation:</strong> raw X posts are held only during the refresh, then discarded. Commercial evidence keeps only public publisher labels, selected headings, quantified signals, dates, URLs and acquisition routes. Instagram requests aggregate hashtag metadata with top/latest post collection disabled—no captions, accounts or images enter the app. A product CSV is normalised into product fields and the raw upload is not retained separately. Shopify access is read-only and excludes customers, orders and payments. Gemini receives only public trend and selected-product information.</div>',
+        '<div class="method-note"><strong>Data minimisation:</strong> raw X posts are held only during the refresh, then discarded. Publisher evidence keeps short labels, selected headings, measurements, dates and source URLs—not copied articles. Instagram requests aggregate metadata only. Shopify access is read-only and excludes customers, orders and payments. Writing models receive stored evidence and selected public-product fields only; Python owns all arithmetic.</div>',
         unsafe_allow_html=True,
     )
+    openai_usage = list(meta.get("openai_usage") or [])
+    if openai_usage:
+        section_header("Model usage", "Last OpenAI refresh")
+        usage_frame = pd.DataFrame(openai_usage)
+        st.metric(
+            "Estimated model cost",
+            f"US${sum(float(row.get('estimated_cost_usd') or 0) for row in openai_usage):.4f}",
+            "excludes external data services",
+        )
+        st.dataframe(usage_frame, hide_index=True, width="stretch")
+        st.caption(
+            "This estimate uses the model-price table bundled with this build. "
+            "Verify current official pricing before budgeting."
+        )
     warnings = meta.get("warnings", [])
     if warnings:
         with st.expander(f"Refresh notes ({len(warnings)})"):
@@ -2492,8 +2561,8 @@ def main() -> None:
                     exc,
                     [settings.supabase_secret_key],
                 )
-        st.session_state.snapshot = sanitize_snapshot_trends(selected)
-    snapshot = sanitize_snapshot_trends(st.session_state.snapshot)
+        st.session_state.snapshot = upgrade_snapshot_to_v2(sanitize_snapshot_trends(selected))
+    snapshot = upgrade_snapshot_to_v2(sanitize_snapshot_trends(st.session_state.snapshot))
     st.session_state.snapshot = snapshot
     page = sidebar(snapshot, settings)
     boot_warning = st.session_state.pop("snapshot_boot_warning", "")

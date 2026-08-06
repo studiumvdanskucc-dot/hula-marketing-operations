@@ -147,8 +147,14 @@ class Settings:
     openrouter_timeout: int = 180
     openrouter_site_url: str = ""
     openrouter_app_name: str = "HULA Trend Intelligence"
+    openai_api_key: str = ""
+    openai_api_url: str = "https://api.openai.com/v1/responses"
+    openai_luna_model: str = "gpt-5.6-luna"
+    openai_terra_model: str = "gpt-5.6-terra"
+    openai_sol_model: str = "gpt-5.6-sol"
+    openai_timeout_seconds: int = 180
     google_geo: str = "WORLDWIDE"
-    google_timeframe: str = "today 1-m"
+    google_timeframe: str = "today 3-m"
     google_discovery_timeframe: str = "now 7-d"
     google_category: int = 0
     google_anchor_term: str = "designer fashion"
@@ -174,7 +180,7 @@ class Settings:
     gemini_model: str = "gemini-3.6-flash"
     gemini_api_url: str = "https://generativelanguage.googleapis.com/v1beta"
     gemini_timeout_seconds: int = 180
-    gemini_grounding_enabled: bool = True
+    gemini_grounding_enabled: bool = False
 
     @property
     def shopify_configured(self) -> bool:
@@ -203,6 +209,15 @@ class Settings:
     @property
     def openrouter_configured(self) -> bool:
         return bool(self.openrouter_api_key and self.openrouter_model)
+
+    @property
+    def openai_configured(self) -> bool:
+        return bool(
+            self.openai_api_key
+            and self.openai_luna_model
+            and self.openai_terra_model
+            and self.openai_sol_model
+        )
 
     @property
     def serpapi_configured(self) -> bool:
@@ -289,8 +304,18 @@ def load_settings() -> Settings:
         openrouter_app_name=str(
             setting("OPENROUTER_APP_NAME", "HULA Trend Intelligence")
         ),
+        openai_api_key=str(setting("OPENAI_API_KEY", "")),
+        openai_api_url=str(
+            setting("OPENAI_API_URL", "https://api.openai.com/v1/responses")
+        ).rstrip("/"),
+        openai_luna_model=str(setting("OPENAI_LUNA_MODEL", "gpt-5.6-luna")),
+        openai_terra_model=str(setting("OPENAI_TERRA_MODEL", "gpt-5.6-terra")),
+        openai_sol_model=str(setting("OPENAI_SOL_MODEL", "gpt-5.6-sol")),
+        openai_timeout_seconds=as_int(
+            setting("OPENAI_TIMEOUT_SECONDS", 180), 180
+        ),
         google_geo=str(setting("GOOGLE_TRENDS_GEO", "WORLDWIDE")),
-        google_timeframe=str(setting("GOOGLE_TRENDS_TIMEFRAME", "today 1-m")),
+        google_timeframe=str(setting("GOOGLE_TRENDS_TIMEFRAME", "today 3-m")),
         google_discovery_timeframe=str(
             setting("GOOGLE_TRENDS_DISCOVERY_TIMEFRAME", "now 7-d")
         ),
@@ -350,6 +375,6 @@ def load_settings() -> Settings:
             setting("GEMINI_TIMEOUT_SECONDS", 180), 180
         ),
         gemini_grounding_enabled=as_bool(
-            setting("GEMINI_GROUNDING_ENABLED", True), True
+            setting("GEMINI_GROUNDING_ENABLED", False), False
         ),
     )

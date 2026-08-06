@@ -1,169 +1,163 @@
-# Methodology and interpretation
+# Methodology 2.0
 
-## What the system answers
+## Purpose
 
-The dashboard prioritises which currently available HULA products deserve
-marketing attention because fresh external demand is strengthening and the
-catalogue provides a credible match. It is decision support, not a sales
-forecast.
+The system answers two different questions:
 
-## Freshness contract
+1. How confidently is a specific fashion trend gaining momentum now?
+2. If it is real, how useful is it for HULA's current luxury-resale catalogue?
 
-X records are eligible only when they have:
+The first answer must not increase merely because HULA owns matching stock.
+This is decision support, not a sales forecast.
 
-- a valid publication timestamp inside the latest fourteen days;
-- usable text;
-- no repost flag;
-- no duplicate post fingerprint.
+## Evidence contract
 
-The real timestamp overrides any scraper-supplied listening-window label. The
-latest seven days form the current window; the preceding seven days form the
-comparison window. Missing timestamps are rejected and are never replaced with
-the current time.
+Every trend stores its aliases, score breakdown, Google measurements,
+independent-domain count, evidence count, linked evidence, warnings and dates.
+Every URL must come from collected input. Models may classify relevance,
+merge aliases and write explanations; they may not invent a source or number.
 
-## X discovery
+Duplicate URLs are counted once. Identical substantial titles on different
+domains are treated as likely syndication and the higher-authority copy is
+retained. Contradictory evidence remains visible and reduces confidence.
 
-Five broad topic families discover product, material, silhouette, aesthetic,
-styling and resale language. Every search is run for the current and previous
-windows with Latest ordering, no replies and no reposts. Publisher accounts on
-X remain supporting context; they no longer supply the commercial score.
+## Source authority
 
-The open-X component combines:
+| Source | Weight |
+| --- | ---: |
+| Data But Make It Fashion | 1.50 |
+| Lyst | 1.45 |
+| Tagwalk | 1.40 |
+| Who What Wear / UK | 1.30 |
+| Vogue / ELLE / Harper's Bazaar | 1.20 |
+| InStyle / Refinery29 / recognised fashion trade | 1.10 |
+| Recognised general news | 0.70 |
+| Unknown blog, aggregator or unverified account | 0.30 |
 
-```text
-25% current unique-author breadth
-20% unique-author growth
-15% post growth
-15% engagement per 1,000 views
-10% independent query-family breadth
-10% four-week novelty
- 5% current post volume
-```
+Authority does not override relevance: the evidence must specifically support
+the identified trend.
 
-An evidence-quality multiplier penalises promotional content, cross-query
-duplicates, low author coverage and excessive concentration in one author.
+## Recency
 
-## Commercial website and report evidence
+| Age | Factor |
+| --- | ---: |
+| Today | 1.00 |
+| 1–3 days | 0.85 |
+| 4–7 days | 0.65 |
+| 8–14 days | 0.35 |
+| More than 14 days | 0.10 |
 
-The commercial collector reads public pages from Tagwalk, Trendalytics,
-Heuritech, Who What Wear, Who What Wear UK, Data But Make It Fashion, Vogue,
-ELLE and the Lyst Index. Source-specific pages, publisher feeds and sitemaps are
-used first; a domain-restricted SerpApi search is the fallback. A source counts
-only when a publisher title, selected editorial trend heading, Tagwalk
-taxonomy, Lyst ranked product or explicit quantified data statement names the
-trend. Ordinary unlabelled body text and shopping product cards are excluded.
+An unknown date is deliberately weaker and never treated as current.
 
-The component combines unique-publisher breadth, authority weight and recency.
-Tagwalk, Trendalytics, Heuritech, Data But Make It Fashion and Lyst receive the
-higher authority weight. A publisher failure is isolated and never converted
-to a zero for the other sources.
+## Component scores
 
-## Instagram aggregate metadata
+### Editorial evidence — 25%
 
-Instagram is queried only after a trend has been qualified elsewhere. The
-aggregate hashtag Actor returns lifetime public uses, posts per day and related
-hashtag counts. Top/latest post collection is disabled, so no captions,
-accounts or images enter the pipeline.
+Relevant original mentions are weighted by source authority, recency and
+evidence relevance. The score reaches 100 at eight weighted mentions. Reprints
+and shopping-card repetition do not add independent mentions.
 
-The score is a comparison among the hashtags queried during that refresh.
-Posts per day leads when available; lifetime counts are log-scaled. The result
-is directional and non-causal.
+### Cross-source confirmation — 20%
 
-## Topic grouping
+Independent authoritative domains map to 20, 40, 60, 75, 88 and 100 for one
+through six-or-more domains. A small diversity bonus rewards evidence across
+editorial, industry, runway, retail, search and social types.
 
-Candidate phrases come from fashion-aware one-, two- and three-word phrases,
-hashtags and a maintained alias ontology. Qwen may group aggregated aliases,
-but it cannot create numerical evidence. The deterministic local method
-validates the output and is the fallback.
+### Google Trends momentum — 20%
 
-The source-aware specificity gate rejects category-only labels before scoring.
-`pants`, `skirt`, `flats` and `polka` fail; `capri pants`, `pencil skirt`,
-`ballet flats` and `polka dots` pass. `jeans`, `loafers` and `sandals` are the
-approved standalone exceptions. A trusted report may introduce a named colour,
-material or aesthetic such as `burgundy`, `suede` or `boho chic`; raw social
-frequency cannot promote those one-word labels by itself.
-
-## Google discovery and validation
-
-Google uses SerpApi's structured Trends endpoint:
-
-- rising related queries over `now 7-d` discover fresh phrases;
-- `today 1-m` validates persistence;
-- `now 7-d` measures immediate acceleration.
-
-Worldwide requests omit `geo`; the literal value `WORLDWIDE` is never sent as a
-country code. Timeline values must carry their query names and are never
-assigned by array position.
-
-Google normalises every multi-query comparison independently. The app repeats
-an anchor term and may use an anchor-calibrated value internally for ranking
-across batches. That calculated value is never plotted. Charts use only
-Google's original 0–100 index with light rolling smoothing. Timelines with too
-few distinct values, excessive plateaus, isolated spikes, out-of-range values
-or no preserved raw index are withheld with an “Insufficient Google
-resolution” explanation.
-
-The Google score combines current relative interest, baseline momentum and
-time-series slope. Google values are relative, not absolute search volume.
-
-A compatible result under 24 hours is a live cache. A cache up to three days
-old may be displayed as stale after a provider failure, but stale Google
-evidence cannot make a trend decision-ready.
-
-## Combined score and completeness
+The app retains the original Google 0–100 values and uses daily measurements:
 
 ```text
-35% Google Trends worldwide
-20% open X topic momentum
-35% approved website/report confirmation
-10% aggregate Instagram hashtag comparison
+35% current seven-day mean
+35% week-over-week growth
+20% current seven-day regression slope
+10% breakout versus the 90-day mean, when available
 ```
 
-Missing components are excluded and the available weights are renormalised;
-missing evidence is not converted to zero. A row enters the decision list only
-when fresh Google and at least one X, commercial-report or hashtag component
-agree.
-Incomplete rows remain in a separate watchlist.
+Google values are relative interest, not absolute volume. Fewer than fourteen
+daily points, invariant/zero timelines or stale results produce `null`, not
+zero. The public output includes both weekly means, percentage change, slope
+and the optional 90-day baseline.
 
-Confidence is **High** when Google and commercial reports agree alongside X or
-Instagram, or when Google agrees with at least two approved publishers. Google
-plus one other eligible source is **Medium**. One-source evidence is
-**Exploratory** and cannot receive an action recommendation.
-
-## Catalogue matching
-
-The app reads active, in-stock products from an uploaded catalogue snapshot or
-the live read-only Shopify API. Matching uses product title, brand, product
-type, tags and description.
+### Social momentum — 15%
 
 ```text
-45% external trend signal
-35% catalogue relevance
-15% content readiness
- 5% catalogue freshness
+40% mention growth
+30% engagement velocity
+20% creator diversity
+10% platform diversity
 ```
 
-Content readiness checks stock, image, description and merchandising tags.
-One-of-one stock quantity `1` is fully available; out-of-stock products are
-excluded.
+Evidence quality discounts duplicated, promotional or author-dominated X
+conversation. Aggregate Instagram metadata is directional and capped; one
+viral post is not treated as broad adoption.
 
-## Storage and editorial controls
+### Runway / celebrity activation — 10%
 
-Supabase stores aggregate weekly snapshots and blog drafts. Raw X posts are not
-stored. Commercial evidence contains only public titles, explicit labels,
-dates and URLs. Instagram stores only aggregate hashtag counts; captions,
-accounts and images are never collected. Customers, orders and payment data
-are not accessed.
+The component measures current runway recurrence, independent reporting and
+repeated adoption. A single old runway reference or isolated appearance stays
+weak. Named-person claims must be supported by the exact supplied evidence.
 
-Gemini runs only after deterministic ranking and product matching. A named
-person may be described as wearing a selected product only when a credible
-source supports the exact design. A similar item is labelled
-`similar_design_only` and stays outside factual publishable copy.
+### Commercial availability — 10%
 
-Before publishing:
+Independent current retail domains distinguish isolated availability from
+several recognised channels or widespread luxury/high-street adoption. HULA's
+own catalogue is excluded from this external-confidence component.
 
-1. verify stock and condition;
-2. review every confirmed source;
-3. check margin and campaign fatigue;
-4. approve the final copy and imagery;
-5. verify whether Soho, The Hub, online—or a combination—is the correct CTA.
+## Missing data and completeness
+
+When a component is unavailable, its value remains `null`. The score is
+calculated from available components after proportionally redistributing their
+weights. Evidence coverage is reported separately as the sum of the original
+weights present. Therefore a 70-confidence result with 45% coverage is visibly
+different from 70 confidence with 90% coverage.
+
+## Confidence caps
+
+- One independent source: maximum 55.
+- Only an isolated product launch/retail signal: maximum 50.
+- Fewer than three independent evidence items: maximum 60.
+- Nothing published or measured in the current fourteen days: maximum 45.
+- Duplicate/syndicated rows are removed before scoring.
+- Contradictory evidence lowers the score.
+
+The action gate additionally requires current evidence, at least three items
+and two independent domains. `Act now` requires 75 confidence, 65% coverage,
+four items and three domains.
+
+## Momentum labels
+
+The average of available Google and social week-over-week changes maps to
+`breakout`, `accelerating`, `steadily rising`, `stable`, `cooling`, `declining`
+or `insufficient data`.
+
+## HULA opportunity
+
+```text
+65% trend confidence
+25% current HULA catalogue match
+10% luxury-resale suitability
+```
+
+This score changes merchandising priority but never changes trend confidence.
+
+## Weekly pipeline
+
+1. Collect permitted source URLs and metadata.
+2. Retain titles, dates, selected headings and short evidence summaries.
+3. Collect Google daily series separately.
+4. Collect available aggregate social, runway and retail signals.
+5. Extract specific candidates and reject broad/non-fashion phrases.
+6. Merge true aliases without merging a whole aesthetic.
+7. Produce a short evidence-led synthesis.
+8. Calculate every number, cap and ordering in Python.
+9. Match the HULA catalogue and calculate HULA opportunity.
+10. Save the full evidence snapshot and optionally draft the blog from it.
+
+## Editorial control
+
+The blog writer receives stored trend evidence and selected public product
+fields only. It does not use live search grounding. Confirmed claims require
+valid source indices; unsupported exact claims are downgraded and kept outside
+publishable copy. An editor must still verify stock, condition, links, product
+details and final wording before publication.

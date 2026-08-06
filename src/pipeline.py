@@ -8,6 +8,13 @@ from src.analysis.freshness import (
     source_freshness_state,
     validate_fresh_posts,
 )
+from src.analysis.evidence_scoring import (
+    METHODOLOGY_VERSION,
+    analysis_period,
+    apply_hula_opportunity_scores,
+    normalise_exclusion_reason,
+    upgrade_trends_to_v2,
+)
 from src.analysis.listening import build_listening_plan, deduplicate_posts
 from src.analysis.matching import match_products
 from src.analysis.trends import (
@@ -31,6 +38,7 @@ from src.connectors.commercial_sources import (
 from src.connectors.gemini_research import GeminiResearchConnector
 from src.connectors.google_trends import GoogleTrendsConnector
 from src.connectors.openrouter import OpenRouterConnector
+from src.connectors.openai_responses import OpenAIResponsesConnector
 from src.connectors.shopify import ShopifyConnector
 from src.connectors.supabase_store import SupabaseStore
 from src.demo_data import demo_products, demo_trends
@@ -58,6 +66,17 @@ def _openrouter(settings: Settings) -> OpenRouterConnector:
         timeout=settings.openrouter_timeout,
         site_url=settings.openrouter_site_url,
         app_name=settings.openrouter_app_name,
+    )
+
+
+def _openai(settings: Settings) -> OpenAIResponsesConnector:
+    return OpenAIResponsesConnector(
+        settings.openai_api_key,
+        api_url=settings.openai_api_url,
+        luna_model=settings.openai_luna_model,
+        terra_model=settings.openai_terra_model,
+        sol_model=settings.openai_sol_model,
+        timeout_seconds=settings.openai_timeout_seconds,
     )
 
 
@@ -513,7 +532,7 @@ def _collect_google(
             )
             attempts.append(
                 {
-                    "stage": "one-month validation",
+                    "stage": "90-day validation",
                     "status": "succeeded",
                     "requests": int(context_result.get("requests_used") or 0),
                 }
@@ -521,12 +540,12 @@ def _collect_google(
         except Exception as exc:
             attempts.append(
                 {
-                    "stage": "one-month validation",
+                    "stage": "90-day validation",
                     "status": "failed",
                     "detail": str(exc)[:260],
                 }
             )
-            warnings.append(f"Google one-month validation: {exc}")
+            warnings.append(f"Google 90-day validation: {exc}")
 
         try:
             recent_result = discovery.collect(candidates, discovery_seeds=[])
@@ -559,7 +578,7 @@ def _collect_google(
             state = "LIVE" if recent_series else "PARTIAL"
             status = _status(
                 state,
-                f"{len(context_series)} one-month terms"
+                f"{len(context_series)} 90-day terms"
                 + (
                     f" · {len(recent_series)} seven-day terms"
                     if recent_series
@@ -776,11 +795,18 @@ def refresh_snapshot(
     existing_snapshot = load_snapshot(settings.snapshot_path)
     existing_meta = (existing_snapshot or {}).get("meta") or {}
 
-    openrouter = (
-        _openrouter(settings)
-        if settings.openrouter_configured and use_llm
+    openai = (
+        _openai(settings)
+        if settings.openai_configured and use_llm
         else None
     )
+    openrouter = (
+        _openrouter(settings)
+        if settings.openrouter_configured and use_llm and openai is None
+        else None
+    )
+    analyst = openai or openrouter
+    extra_openai_usage: list[dict[str, Any]] = []
 
     x_posts, x_collection, source_status["x_apify"] = _collect_x(
         settings,
@@ -811,9 +837,9 @@ def refresh_snapshot(
         audit=filtered_terms,
     )
     semantic_error = ""
-    if openrouter is not None and candidates:
+    if analyst is not None and candidates:
         try:
-            model_clusters = openrouter.cluster_topic_phrases(candidates)
+            model_clusters = analyst.cluster_topic_phrases(candidates)
             semantic_clusters = build_topic_clusters(
                 candidates,
                 llm_clusters=model_clusters,
@@ -822,7 +848,7 @@ def refresh_snapshot(
         except Exception as exc:
             semantic_error = str(exc)
             warnings.append(
-                f"OpenRouter semantic grouping: {exc}. Local grouping was used."
+                f"Model semantic grouping: {exc}. Local grouping was used."
             )
 
     social_rows = extract_x_signals(
@@ -862,36 +888,61 @@ def refresh_snapshot(
         instagram_rows=instagram_rows,
         audit=filtered_terms,
     )
+    if openai is not None and trends:
+        try:
+            trends = openai.review_evidence(trends)
+        except Exception as exc:
+            warnings.append(
+                f"Luna evidence relevance review: {exc}. Deterministic source filters were retained."
+            )
     if not google_fresh:
         for trend in trends:
-            trend["decision_ready"] = False
-            trend["confidence"] = "Exploratory"
             trend["google_stale"] = trend.get("google_score") is not None
 
-    if openrouter is not None and trends:
+    # Every public number is now calculated from stored evidence. The legacy
+    # merge above remains useful for alias alignment and backward-compatible
+    # fields; this v2 pass owns confidence, completeness, caps and ordering.
+    trends = upgrade_trends_to_v2(trends)
+
+    if analyst is not None and trends:
         try:
-            trends = openrouter.enrich_trends(trends)
-            source_status["openrouter"] = _status(
+            trends = analyst.enrich_trends(trends)
+            analyst_key = "openai" if openai is not None else "openrouter"
+            analyst_model = (
+                settings.openai_sol_model
+                if openai is not None
+                else settings.openrouter_model
+            )
+            source_status[analyst_key] = _status(
                 "LIVE",
-                settings.openrouter_model
+                analyst_model
                 + (
                     " · local semantic fallback"
                     if semantic_error
-                    else " · semantic grouping + copy enrichment"
+                    else " · evidence-locked synthesis"
                 ),
             )
         except Exception as exc:
-            source_status["openrouter"] = _status(
+            analyst_key = "openai" if openai is not None else "openrouter"
+            source_status[analyst_key] = _status(
                 "PARTIAL",
                 "deterministic trend fields retained",
             )
-            warnings.append(f"OpenRouter enrichment: {exc}")
+            warnings.append(f"Model synthesis: {exc}")
     else:
-        source_status["openrouter"] = (
+        source_status["openai"] = (
             "NOT CONFIGURED"
-            if not settings.openrouter_configured
+            if not settings.openai_configured
             else _status("PARTIAL", "disabled for this refresh")
         )
+        if not settings.openai_configured:
+            source_status["openrouter"] = (
+                "NOT CONFIGURED"
+                if not settings.openrouter_configured
+                else _status("PARTIAL", "disabled for this refresh")
+            )
+    if openai is not None:
+        source_status["openrouter"] = _status("PARTIAL", "not used · OpenAI configured")
 
     fallback_kind = ""
     if not trends:
@@ -931,6 +982,11 @@ def refresh_snapshot(
                 "illustrative data",
             )
 
+    if trends and not all(
+        isinstance(trend.get("score_breakdown"), dict) for trend in trends
+    ):
+        trends = upgrade_trends_to_v2(trends)
+
     products, actual_catalog_source, source_status[
         "shopify"
     ], catalogue_meta = _catalogue(
@@ -941,11 +997,16 @@ def refresh_snapshot(
         warnings=warnings,
     )
     recommendations = match_products(trends, products)
+    trends, recommendations = apply_hula_opportunity_scores(
+        trends,
+        recommendations,
+        products,
+    )
 
     editorial = dict((existing_snapshot or {}).get("editorial") or {})
     if generate_editorial:
         ready = [trend for trend in trends if trend.get("decision_ready")]
-        if settings.gemini_configured and ready:
+        if (settings.openai_configured or settings.gemini_configured) and ready:
             lead = ready[0]
             selected_products = _blog_products(
                 lead,
@@ -954,30 +1015,47 @@ def refresh_snapshot(
             )
             if selected_products:
                 try:
+                    blog_writer = openai or (
+                        _openai(settings)
+                        if settings.openai_configured
+                        else _gemini(settings)
+                    )
                     blog = generate_researched_blog(
-                        _gemini(settings),
+                        blog_writer,
                         lead,
                         selected_products,
                         reason="This week's strongest product trend",
                         stores=["Online", "HULA Soho", "The Hub"],
                     )
+                    if (
+                        isinstance(blog_writer, OpenAIResponsesConnector)
+                        and blog_writer is not openai
+                    ):
+                        extra_openai_usage.extend(blog_writer.usage_log)
                     editorial["latest_blog"] = blog
-                    source_status["gemini"] = _status(
+                    writer_key = "openai" if settings.openai_configured else "gemini"
+                    writer_model = (
+                        settings.openai_sol_model
+                        if settings.openai_configured
+                        else settings.gemini_model
+                    )
+                    source_status[writer_key] = _status(
                         "LIVE",
-                        f"{settings.gemini_model} · grounded Wednesday draft",
+                        f"{writer_model} · evidence-locked Wednesday draft",
                     )
                 except Exception as exc:
-                    source_status["gemini"] = _status(
+                    writer_key = "openai" if settings.openai_configured else "gemini"
+                    source_status[writer_key] = _status(
                         "FAILED",
                         "previous draft retained",
                     )
-                    warnings.append(f"Gemini Wednesday blog: {exc}")
+                    warnings.append(f"Evidence-locked Wednesday blog: {exc}")
             else:
                 source_status["gemini"] = _status(
                     "PARTIAL",
                     "no matched products for an automatic draft",
                 )
-        elif not settings.gemini_configured:
+        elif not settings.openai_configured and not settings.gemini_configured:
             source_status["gemini"] = "NOT CONFIGURED"
         else:
             source_status["gemini"] = _status(
@@ -985,9 +1063,11 @@ def refresh_snapshot(
                 "no decision-ready trend",
             )
     else:
-        source_status["gemini"] = (
-            _status("LIVE", "configured · generation available on demand")
-            if settings.gemini_configured
+        writer_configured = settings.openai_configured or settings.gemini_configured
+        writer_key = "openai" if settings.openai_configured else "gemini"
+        source_status[writer_key] = (
+            _status("LIVE", "configured · evidence-locked generation available")
+            if writer_configured
             else "NOT CONFIGURED"
         )
 
@@ -999,18 +1079,15 @@ def refresh_snapshot(
     else:
         source_status["supabase"] = "NOT CONFIGURED"
 
-    live_signal = (
-        source_status["google_trends"].startswith(("LIVE", "PARTIAL"))
-        and (
-            source_status["x_apify"].startswith(("LIVE", "PARTIAL"))
-            or source_status["commercial_websites"].startswith(
-                ("LIVE", "PARTIAL")
-            )
-            or source_status["instagram_hashtags"].startswith(
-                ("LIVE", "PARTIAL")
-            )
+    live_signal = sum(
+        str(source_status.get(key) or "").startswith(("LIVE", "PARTIAL"))
+        for key in (
+            "google_trends",
+            "x_apify",
+            "commercial_websites",
+            "instagram_hashtags",
         )
-    )
+    ) >= 2
     if fallback_kind == "stale":
         mode = "stale"
     elif fallback_kind == "demo":
@@ -1071,7 +1148,11 @@ def refresh_snapshot(
                 "recommendations": len(recommendations),
             },
             "warnings": warnings,
-            "methodology_version": "0.7",
+            "openai_usage": [
+                *(list(openai.usage_log) if openai is not None else []),
+                *extra_openai_usage,
+            ],
+            "methodology_version": METHODOLOGY_VERSION,
             "quality_filter_version": "4.0",
             "google_display_schema_version": "2.0",
             "privacy": (
@@ -1079,15 +1160,28 @@ def refresh_snapshot(
                 "hashtag counts with top/latest post collection disabled; no Instagram "
                 "captions, accounts or images enter the pipeline. Commercial evidence "
                 "stores only public publisher titles, trend-labelled headings, dates and "
-                "URLs. Gemini receives only public trend and selected product metadata. "
+                "URLs. Writing models receive only stored evidence and selected public "
+                "product metadata; live-search grounding is not used for the blog. "
                 "No customers, orders or payments are accessed."
             ),
         },
+        "analysis_period": analysis_period(
+            datetime.now(tz=timezone.utc),
+            geography=settings.google_geo,
+        ),
+        "methodology_version": METHODOLOGY_VERSION,
         "google_cache": google_cache,
         "trends": trends,
         "products": products,
         "recommendations": recommendations,
         "editorial": editorial,
+        "excluded_candidates": [
+            {
+                "candidate": str(row.get("term") or row.get("candidate") or ""),
+                "reason": normalise_exclusion_reason(row.get("reason")),
+            }
+            for row in filtered_audit
+        ],
     }
 
     if persist:

@@ -10,6 +10,7 @@ SOURCE_NAMES = {
     "commercial_websites": "Commercial websites & reports",
     "instagram_hashtags": "Instagram hashtag metadata",
     "shopify": "Product catalogue",
+    "openai": "OpenAI Responses",
     "openrouter": "OpenRouter / Qwen",
     "supabase": "Supabase history",
     "gemini": "Gemini blog research",
@@ -47,6 +48,7 @@ def hybrid_explanation(meta: dict[str, Any]) -> str:
         "x_apify",
         "commercial_websites",
         "instagram_hashtags",
+        "openai",
         "openrouter",
         "supabase",
         "gemini",
@@ -127,6 +129,8 @@ def _action_for(
             return "Add SUPABASE_URL and SUPABASE_SECRET_KEY, then run supabase/schema.sql once."
         if source == "gemini":
             return "Add GEMINI_API_KEY and GEMINI_MODEL in Streamlit Secrets."
+        if source == "openai":
+            return "Add OPENAI_API_KEY in Streamlit Secrets, then run the model connection test."
         return "Add the required settings, restart Streamlit, then run the connection test."
     if "skipped" in lowered:
         return "The connection may be available, but enrichment was disabled for that refresh."
@@ -146,6 +150,7 @@ def source_diagnostic_rows(
     commercial_configured: bool = True,
     supabase_configured: bool = False,
     gemini_configured: bool = False,
+    openai_configured: bool = False,
 ) -> list[dict[str, str]]:
     statuses = meta.get("source_status") or {}
     catalogue_source = str(meta.get("catalogue_source", "")).lower()
@@ -155,6 +160,7 @@ def source_diagnostic_rows(
         "commercial_websites": commercial_configured,
         "instagram_hashtags": instagram_configured,
         "shopify": catalogue_source == "csv" or shopify_configured,
+        "openai": openai_configured,
         "openrouter": openrouter_configured,
         "supabase": supabase_configured,
         "gemini": gemini_configured,
@@ -166,6 +172,7 @@ def source_diagnostic_rows(
         "commercial_websites",
         "instagram_hashtags",
         "shopify",
+        "openai",
         "openrouter",
         "supabase",
         "gemini",
@@ -202,6 +209,8 @@ def diagnostic_report(
     commercial_configured: bool = True,
     supabase_configured: bool = False,
     gemini_configured: bool = False,
+    openai_configured: bool = False,
+    openai_sol_model: str = "",
 ) -> dict[str, Any]:
     """Create a shareable report that intentionally excludes every secret value."""
     return {
@@ -216,6 +225,8 @@ def diagnostic_report(
             "commercial_websites": commercial_configured,
             "instagram_hashtags": instagram_configured,
             "shopify_api": shopify_configured,
+            "openai": openai_configured,
+            "openai_sol_model": openai_sol_model,
             "openrouter": openrouter_configured,
             "openrouter_model": openrouter_model,
             "google_trends_provider": google_provider,

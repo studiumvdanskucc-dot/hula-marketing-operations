@@ -7,6 +7,9 @@ import pytest
 from streamlit.testing.v1 import AppTest
 
 
+APP_PATH = Path(__file__).resolve().parents[1] / "app.py"
+
+
 @pytest.mark.parametrize(
     "page",
     [
@@ -19,13 +22,13 @@ from streamlit.testing.v1 import AppTest
     ],
 )
 def test_each_dashboard_page_renders(page: str) -> None:
-    app = AppTest.from_file("app.py", default_timeout=30).run()
+    app = AppTest.from_file(APP_PATH, default_timeout=30).run()
     app.radio[0].set_value(page).run()
     assert not app.exception
 
 
 def test_csv_catalogue_route_renders() -> None:
-    app = AppTest.from_file("app.py", default_timeout=30).run()
+    app = AppTest.from_file(APP_PATH, default_timeout=30).run()
     app.radio[0].set_value("DATA & SETUP").run()
     app.radio[0].set_value("Upload CSV").run()
     assert not app.exception
@@ -37,7 +40,7 @@ def test_csv_import_button_saves_without_widget_state_exception(tmp_path, monkey
     payload = b'''Handle,Title,Vendor,Type,Variant Price,Image Src,Status,CreatedAt (product.metafields.custom.createdat),Brand (product.metafields.wk_custom_field.brand)
 toteme-top,[WW58076] Toteme | Sleeveless Top,nataliesj92,Sleeveless Top,700,https://example.com/top.jpg,active,'1783567690,Toteme
 '''
-    app = AppTest.from_file("app.py", default_timeout=30).run()
+    app = AppTest.from_file(APP_PATH, default_timeout=30).run()
     app.radio[0].set_value("DATA & SETUP").run()
     app.radio[0].set_value("Upload CSV").run()
     app.get("file_uploader")[0].upload("products_export.csv", payload, "text/csv").run()
@@ -52,7 +55,7 @@ toteme-top,[WW58076] Toteme | Sleeveless Top,nataliesj92,Sleeveless Top,700,http
 
 def test_catalogue_widget_state_is_never_assigned_directly() -> None:
     """Widget-owned state must only be changed by the radio widget itself."""
-    app_source = Path("app.py").read_text(encoding="utf-8")
+    app_source = APP_PATH.read_text(encoding="utf-8")
     assert "catalogue_source_choice" not in app_source
     tree = ast.parse(app_source)
     forbidden_assignments = []
@@ -77,12 +80,12 @@ def test_catalogue_widget_state_is_never_assigned_directly() -> None:
 
 
 def test_repaired_build_is_visible_in_sidebar() -> None:
-    app = AppTest.from_file("app.py", default_timeout=30).run()
-    assert any("Build 2026.08.04.1" in caption.value for caption in app.sidebar.caption)
+    app = AppTest.from_file(APP_PATH, default_timeout=30).run()
+    assert any("Build 2026.08.06.2" in caption.value for caption in app.sidebar.caption)
 
 
 def test_data_setup_shows_safe_diagnostics() -> None:
-    app = AppTest.from_file("app.py", default_timeout=30).run()
+    app = AppTest.from_file(APP_PATH, default_timeout=30).run()
     app.radio[0].set_value("DATA & SETUP").run()
     assert not app.exception
     assert any(
@@ -94,4 +97,4 @@ def test_data_setup_shows_safe_diagnostics() -> None:
     assert "Test publisher pages" in labels
     assert "Test hashtag Actor" in labels
     assert "Test Supabase history" in labels
-    assert "Test Gemini research" in labels
+    assert "Test Gemini fallback" in labels

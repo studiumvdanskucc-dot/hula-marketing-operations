@@ -191,7 +191,7 @@ class GoogleTrendsConnector:
     def __init__(
         self,
         geo: str = "WORLDWIDE",
-        timeframe: str = "today 1-m",
+        timeframe: str = "today 3-m",
         category: int = 0,
         anchor_term: str = "designer fashion",
         *,
@@ -206,7 +206,7 @@ class GoogleTrendsConnector:
     ) -> None:
         self.geo = normalize_google_geo(geo)
         self.market = google_market_label(geo)
-        self.timeframe = str(timeframe or "today 1-m").strip()
+        self.timeframe = str(timeframe or "today 3-m").strip()
         self.category = int(category or 0)
         self.anchor_term = str(anchor_term or "designer fashion").strip()
         self.provider = str(provider or "auto").strip().lower()

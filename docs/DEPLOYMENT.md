@@ -45,6 +45,7 @@ secret**. Add:
 - `APIFY_TOKEN`
 - `APIFY_X_TASK_ID`
 - `APIFY_X_TASK_INPUT_JSON` with `{}`
+- `OPENAI_API_KEY` for the recommended Luna/Terra/Sol path
 - `OPENROUTER_API_KEY`
 - `OPENROUTER_SITE_URL` after Streamlit gives you the final URL
 - `SUPABASE_URL`
@@ -70,10 +71,10 @@ are added.
 4. Choose branch `main` and entrypoint `app.py`.
 5. Open **Advanced settings → Secrets**.
 6. Copy `.streamlit/secrets.toml.example` into the box and replace the
-   placeholders. At minimum, add the SerpApi, Apify, OpenRouter, Supabase,
-   Gemini and team-password values.
+   placeholders. At minimum, add the catalogue route, SerpApi, OpenAI and
+   team-password values. Apify, Supabase, OpenRouter and Gemini are optional.
 7. Select **Deploy**.
-8. Open the final URL and confirm the sidebar says **Build 2026.08.04.1**.
+8. Open the final URL and confirm the sidebar says **Build 2026.08.06.2**.
 
 The Streamlit and GitHub secrets stores are separate. The weekly Action needs
 its own copy of every secret used during an automated refresh.
@@ -101,9 +102,10 @@ weekly source of `data/latest_snapshot.json`.
 
 1. Wake/open the Streamlit app.
 2. Confirm the team password works.
-3. Confirm **Build 2026.08.04.1**.
+3. Confirm **Build 2026.08.06.2**.
 4. Run **Test Google Trends (Worldwide)**; it should report SerpApi and one search.
-5. Run the X, publisher-page, hashtag, OpenRouter, Supabase and Gemini tests.
+5. Run the publisher-page and OpenAI tests, plus any configured X, hashtag,
+   Supabase, OpenRouter or Gemini fallback tests.
 6. Run the GitHub workflow manually.
 7. Confirm it creates a `data: refresh weekly HULA trend snapshot` commit.
 8. Reopen the dashboard and confirm the refresh timestamp and live sources.

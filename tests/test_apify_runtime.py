@@ -121,7 +121,7 @@ def test_google_cache_is_scoped_to_market_and_timeframe() -> None:
             "schema_version": "3.0",
             "collected_at": datetime.now(tz=timezone.utc).isoformat(),
             "market": "HK",
-            "context_timeframe": "today 1-m",
+            "context_timeframe": "today 3-m",
             "discovery_timeframe": "now 7-d",
             "context_series": {
                 "black bags": [{"date": "2026-07-01", "value": 50}]
