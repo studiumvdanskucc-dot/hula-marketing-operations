@@ -7,7 +7,6 @@ import io
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -35,7 +34,6 @@ from src.connectors.apify_instagram_hashtags import (
 from src.connectors.catalog_csv import SIMPLE_CSV_TEMPLATE, parse_product_csv
 from src.connectors.commercial_sources import (
     COMMERCIAL_SOURCES,
-    EDITORIAL_PUBLISHERS,
     CommercialSourceCollector,
 )
 from src.connectors.gemini_research import GeminiResearchConnector
@@ -68,8 +66,7 @@ PALETTE = [PINK, INK, LILAC, "#e8a846", "#6f8e84", "#d46262"]
 CATALOGUE_CSV = "Upload CSV"
 CATALOGUE_API = "Shopify API"
 CATALOGUE_SELECTOR_KEY = "catalogue_source_selector_v2"
-APP_BUILD = "2026.08.06.4"
-DISCOVERY_PIPELINE_VERSION = "4.0"
+APP_BUILD = "2026.08.06.2"
 DECISION_COLORS = {
     "Act now": PINK,
     "Test this week": "#e8a846",
@@ -130,7 +127,7 @@ def inject_styles() -> None:
         .source-name { font-size:.76rem; letter-spacing:.1em; text-transform:uppercase; }
         .source-state { font-size:1.1rem; margin:.65rem 0 .25rem; }
         .dot { width:9px; height:9px; border-radius:50%; display:inline-block; margin-right:.4rem; background:#aaa; }
-        .dot.live { background:#27a05a; } .dot.standby { background:#9b9186; } .dot.demo { background:#e8a846; } .dot.fail { background:#d64848; }
+        .dot.live { background:#27a05a; } .dot.demo { background:#e8a846; } .dot.fail { background:#d64848; }
         .method-note { border:1px solid #dedbd5; background:#f8f7f5; padding:1.2rem; color:#5f5b57; line-height:1.6; font-size:.82rem; }
         .decision-key { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.7rem; margin:.2rem 0 1rem; }
         .decision-item { border:1px solid #dedbd5; padding:.8rem .9rem; font-size:.76rem; line-height:1.45; background:#fff; }
@@ -245,8 +242,6 @@ def plot_layout(figure: go.Figure, height: int = 430) -> go.Figure:
 def business_decision(trend: dict) -> str:
     """Translate the evidence score into one plain-language business action."""
 
-    if trend.get("business_action") in DECISION_COLORS:
-        return str(trend["business_action"])
     if not trend.get("decision_ready"):
         return "Watch"
     score = float(trend.get("confidence_score") or trend.get("score") or 0)
@@ -303,7 +298,6 @@ def priority_rows(trends: list[dict], *, limit: int = 30) -> pd.DataFrame:
             {
                 "Rank": index + 1,
                 "Trend": row.get("name"),
-                "Origin": row.get("discovery_origin_label") or "Not recorded",
                 "Decision": business_decision(row).upper(),
                 "Confidence": f"{float(row.get('confidence_score') or row.get('score') or 0):.0f}/100",
                 "Coverage": f"{float(row.get('data_completeness_score') or 0):.0f}%",
@@ -356,114 +350,15 @@ def publisher_inventory_rows(snapshot: dict) -> pd.DataFrame:
                 "Trend": discovery.get("name"),
                 "Publisher sites": ", ".join(publishers) or "Not reported",
                 "Evidence pages": len(pages),
-                "Newest evidence": str(
-                    discovery.get("newest_published_at") or ""
-                )[:10]
-                or "Date not exposed",
-                "Fresh pages (14d)": int(
-                    discovery.get("current_article_count") or 0
-                ),
-                "Validation priority": f"{float(discovery.get('validation_priority_score') or 0):.0f}/100",
                 "Validation": validation,
                 "First source": pages[0] if pages else "",
-                "_score": float(
-                    discovery.get("validation_priority_score")
-                    or discovery.get("commercial_score")
-                    or 0
-                ),
+                "_score": float(discovery.get("commercial_score") or 0),
             }
         )
     rows.sort(key=lambda row: (-float(row["_score"]), str(row["Trend"])))
     for row in rows:
         row.pop("_score", None)
     return pd.DataFrame(rows)
-
-
-def fresh_discovery_rows(snapshot: dict, *, limit: int = 8) -> pd.DataFrame:
-    """Surface new publisher finds without pretending they are action-ready."""
-
-    meta = snapshot.get("meta") or {}
-    selected_ids = {
-        str(row.get("id") or "")
-        for row in meta.get("validation_plan") or []
-    }
-    trends_by_id = {
-        str(row.get("id") or ""): row for row in snapshot.get("trends") or []
-    }
-    discoveries = sorted(
-        (
-            row
-            for row in meta.get("commercial_discoveries") or []
-            if int(row.get("current_article_count") or 0) > 0
-        ),
-        key=lambda row: float(row.get("validation_priority_score") or 0),
-        reverse=True,
-    )[: max(1, int(limit))]
-    rows: list[dict[str, object]] = []
-    for discovery in discoveries:
-        trend_id = str(discovery.get("id") or "")
-        merged = trends_by_id.get(trend_id) or {}
-        evidence = list(discovery.get("commercial_evidence") or [])
-        source_url = next(
-            (str(row.get("url") or "") for row in evidence if row.get("url")),
-            "",
-        )
-        rows.append(
-            {
-                "Fresh trend": discovery.get("name"),
-                "Found by": ", ".join(discovery.get("publisher_names") or []),
-                "Newest evidence": str(
-                    discovery.get("newest_published_at") or ""
-                )[:10],
-                "Selected for validation": "Yes" if trend_id in selected_ids else "No",
-                "Confidence now": f"{float(merged.get('confidence_score') or merged.get('score') or 0):.0f}/100",
-                "Status": (
-                    business_decision(merged)
-                    if merged
-                    else "Awaiting validation"
-                ),
-                "Source": source_url,
-            }
-        )
-    return pd.DataFrame(rows)
-
-
-def guard_legacy_discovery_snapshot(snapshot: dict) -> dict:
-    """Prevent pre-repair rankings from looking live before the next refresh."""
-
-    meta = dict(snapshot.get("meta") or {})
-    mode = str(meta.get("mode") or "").casefold()
-    current = str(meta.get("discovery_pipeline_version") or "")
-    if mode not in {"live", "hybrid"} or current == DISCOVERY_PIPELINE_VERSION:
-        return snapshot
-
-    guarded = dict(snapshot)
-    guarded["trends"] = [
-        {
-            **trend,
-            "decision_ready": False,
-            "confidence": "Exploratory",
-            "is_stale": True,
-            "live_discovered": False,
-            "discovery_origins": ["historical"],
-            "primary_discovery_origin": "historical",
-            "discovery_origin_label": "Historical snapshot — refresh required",
-        }
-        for trend in snapshot.get("trends") or []
-    ]
-    source_status = dict(meta.get("source_status") or {})
-    source_status["trend_pipeline"] = (
-        "STALE · snapshot predates live-discovery repair; run one full refresh"
-    )
-    meta.update(
-        {
-            "mode": "stale",
-            "discovery_refresh_required": True,
-            "source_status": source_status,
-        }
-    )
-    guarded["meta"] = meta
-    return guarded
 
 
 def mode_banner(meta: dict) -> None:
@@ -507,9 +402,6 @@ def trend_cards(trends: list[dict], count: int = 4) -> None:
     for index, trend in enumerate(trends[:count]):
         with columns[index % len(columns)]:
             sources = " + ".join(trend.get("sources", [])[:4]) or "Evidence pending"
-            origin = str(
-                trend.get("discovery_origin_label") or "Origin not recorded"
-            )
             st.markdown(
                 f"""
                 <div class="trend-card {'hot' if index == 0 else ''}">
@@ -518,7 +410,6 @@ def trend_cards(trends: list[dict], count: int = 4) -> None:
                   <div class="trend-score">{float(trend.get('confidence_score') or trend.get('score') or 0):.0f}<span> / 100 confidence</span></div>
                   <div style="margin:.7rem 0"><span class="pill pink">{float(trend.get('data_completeness_score') or 0):.0f}% evidence coverage</span></div>
                   <div class="micro">HULA opportunity · {float(trend.get('hula_opportunity_score') or 0):.0f}/100</div>
-                  <div class="micro">{html.escape(origin)}</div>
                   <div class="micro">{html.escape(sources)}</div>
                 </div>
                 """,
@@ -596,20 +487,14 @@ def render_product_grid(snapshot: dict, rows: list[dict], count: int = 6) -> Non
                         links[1].link_button("Open Shopify", product["admin_url"], width="stretch")
 
 
-def line_chart(
-    trends: list[dict],
-    selected_ids: list[str] | None = None,
-    *,
-    series_key: str = "display_series",
-    chart_ready_key: str = "chart_ready",
-) -> go.Figure:
+def line_chart(trends: list[dict], selected_ids: list[str] | None = None) -> go.Figure:
     figure = go.Figure()
     filtered = trends
     if selected_ids:
         filtered = [trend for trend in trends if str(trend.get("id")) in selected_ids]
     for index, trend in enumerate(filtered):
-        points = list(trend.get(series_key) or [])
-        if not trend.get(chart_ready_key) or not points:
+        points = list(trend.get("display_series") or [])
+        if not trend.get("chart_ready") or not points:
             continue
         figure.add_trace(
             go.Scatter(
@@ -633,22 +518,13 @@ def chart_or_quality_note(
     trends: list[dict],
     *,
     selected_ids: list[str] | None = None,
-    series_key: str = "display_series",
-    chart_ready_key: str = "chart_ready",
-    chart_key: str | None = None,
 ) -> None:
-    figure = line_chart(
-        trends,
-        selected_ids,
-        series_key=series_key,
-        chart_ready_key=chart_ready_key,
-    )
+    figure = line_chart(trends, selected_ids)
     if figure.data:
         st.plotly_chart(
             figure,
             width="stretch",
             config={"displayModeBar": False},
-            key=chart_key,
         )
         return
     st.info(
@@ -692,29 +568,7 @@ def this_week(snapshot: dict) -> None:
     metrics[2].metric("Promotable products", unique_products, "in-stock catalogue matches")
     metrics[3].metric("Updated", updated.strftime("%d %b · %H:%M"), "Hong Kong time")
 
-    section_header(
-        "01 · Fresh discovery queue",
-        "What publishers introduced most recently",
-    )
-    fresh = fresh_discovery_rows(snapshot)
-    if fresh.empty:
-        st.info(
-            "No dated publisher discovery from the current 14-day window was stored. "
-            "Run a live refresh or inspect publisher dates in Trend Radar."
-        )
-    else:
-        st.dataframe(
-            fresh,
-            hide_index=True,
-            width="stretch",
-            column_config={"Source": st.column_config.LinkColumn("Source")},
-        )
-        st.caption(
-            "These are live discoveries selected for targeted validation. They remain "
-            "separate from the action list until the evidence gates are cleared."
-        )
-
-    section_header("02 · Signal board", "This week's strongest opportunities")
+    section_header("01 · Signal board", "This week's strongest opportunities")
     if not ready_trends and trends:
         st.warning(
             "No trend currently clears the evidence-count, domain and recency gates. "
@@ -729,7 +583,7 @@ def this_week(snapshot: dict) -> None:
             "The complete list is in Data & Setup."
         )
 
-    section_header("03 · Momentum", "Measured Google movement from the stored timeline")
+    section_header("02 · Momentum", "Measured Google movement from the stored timeline")
     chart_or_quality_note(display_trends[:5])
     st.caption(
         "The chart shows Google's original 0–100 index with light smoothing, not "
@@ -737,7 +591,7 @@ def this_week(snapshot: dict) -> None:
         "It is relative interest, not absolute search volume."
     )
 
-    section_header("04 · Catalogue opportunity", "Products to put in front of people now")
+    section_header("03 · Catalogue opportunity", "Products to put in front of people now")
     top_recommendations = []
     seen_products: set[str] = set()
     ready_ids = {str(trend.get("id")) for trend in ready_trends}
@@ -758,7 +612,7 @@ def this_week(snapshot: dict) -> None:
             "has enough current, independent evidence."
         )
 
-    section_header("05 · Direction", "The editorial idea behind the numbers")
+    section_header("04 · Direction", "The editorial idea behind the numbers")
     left, right = st.columns([1.05, 1], gap="large")
     top = display_trends[0] if display_trends else {}
     with left:
@@ -880,8 +734,6 @@ def trend_radar(snapshot: dict) -> None:
                     [
                         {
                             "Trend": trend.get("name"),
-                            "Origin": trend.get("discovery_origin_label")
-                            or "Not recorded",
                             "Confidence": f"{float(trend.get('confidence_score') or trend.get('score') or 0):.0f}/100",
                             "Coverage": f"{float(trend.get('data_completeness_score') or 0):.0f}%",
                             "Evidence": int(trend.get("evidence_count") or 0),
@@ -908,8 +760,6 @@ def trend_radar(snapshot: dict) -> None:
             [
                 {
                     "Trend": trend.get("name"),
-                    "Origin": trend.get("discovery_origin_label")
-                    or "Not recorded",
                     "Google week on week": (
                         f"{float((trend.get('google_trends_metrics') or {}).get('week_over_week_change_percent')):+.0f}%"
                         if (trend.get("google_trends_metrics") or {}).get("week_over_week_change_percent") is not None
@@ -974,7 +824,6 @@ def trend_radar(snapshot: dict) -> None:
             <div class="score-row"><span>Independent domains</span><strong>{int(selected.get('independent_domain_count') or 0)}</strong></div>
             <div class="score-row"><span>Evidence items</span><strong>{int(selected.get('evidence_count') or 0)}</strong></div>
             <div class="score-row"><span>Confidence band</span><strong>{html.escape(str(selected.get('confidence', '')))}</strong></div>
-            <div class="score-row"><span>Discovery origin</span><strong>{html.escape(str(selected.get('discovery_origin_label') or 'Not recorded'))}</strong></div>
             """,
             unsafe_allow_html=True,
         )
@@ -1593,8 +1442,6 @@ def status_class(value: str) -> str:
     lowered = value.lower()
     if "live" in lowered:
         return "live"
-    if "standby" in lowered:
-        return "standby"
     if "failed" in lowered:
         return "fail"
     return "demo"
@@ -1943,82 +1790,22 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
         )
 
     section_header(
-        "Live validation queue",
-        "The exact candidates sent to search and hashtag enrichment",
-    )
-    validation_plan = list(meta.get("validation_plan") or [])
-    if validation_plan:
-        st.dataframe(
-            pd.DataFrame(
-                [
-                    {
-                        "Rank": row.get("rank"),
-                        "Candidate": row.get("name"),
-                        "Origin": ", ".join(row.get("origins") or []),
-                        "Priority": f"{float(row.get('priority') or 0):.0f}/100",
-                        "Fresh publisher pages": int(
-                            row.get("current_article_count") or 0
-                        ),
-                        "Fallback seed only": "Yes" if row.get("seed_only") else "No",
-                    }
-                    for row in validation_plan
-                ]
-            ),
-            hide_index=True,
-            width="stretch",
-        )
-        google_cache_match = (meta.get("google_trends") or {}).get(
-            "cache_candidate_match"
-        )
-        st.caption(
-            "A 24-hour Google cache is reused only when this live candidate set matches "
-            "the cached fingerprint. Last refresh candidate match: "
-            + ("yes." if google_cache_match else "no — a new measurement was required.")
-        )
-    else:
-        st.info("Run a live refresh to create the validation queue.")
-
-    section_header(
         "X listening design",
-        "Open discovery plus targeted validation of fresh publisher finds",
+        "Open discovery first, commercial confirmation second",
     )
-    last_validation_terms = list(
-        (meta.get("x_listening") or {}).get("validation_terms") or []
-    )
-    if not last_validation_terms:
-        last_validation_terms = [
-            str(row.get("name") or "")
-            for row in (meta.get("commercial_discoveries") or [])[:12]
-            if row.get("name")
-        ]
     listening_plan = build_listening_plan(
         language=settings.x_language,
         results_per_query=settings.apify_results_per_query,
         expert_results_per_query=settings.apify_expert_results_per_query,
         expert_accounts=settings.x_expert_accounts,
         priority_accounts=settings.x_priority_accounts,
-        validation_terms=last_validation_terms,
     )
     open_searches = sum(not row.get("is_expert") for row in listening_plan)
     expert_searches = sum(bool(row.get("is_expert")) for row in listening_plan)
-    dynamic_searches = sum(
-        bool(row.get("is_dynamic_validation")) for row in listening_plan
-    )
-    topic_families = len(
-        {
-            str(row.get("group") or "")
-            for row in listening_plan
-            if not row.get("is_expert")
-        }
-    )
     max_posts = sum(int((row.get("input") or {}).get("max_results") or 0) for row in listening_plan)
     design_metrics = st.columns(4)
     design_metrics[0].metric("Rolling searches", len(listening_plan), "current + previous week")
-    design_metrics[1].metric(
-        "Open topic searches",
-        open_searches,
-        f"{topic_families} families · {dynamic_searches} targeted",
-    )
+    design_metrics[1].metric("Open topic searches", open_searches, "five balanced topic families")
     monitored_accounts = len(
         {
             *settings.x_expert_accounts,
@@ -2034,9 +1821,8 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
     st.write(
         "The app runs each topic against a **current seven-day window** and a separate "
         "**previous seven-day window**. Hashtags are accepted when they occur naturally, but the "
-        "search does not depend on hashtags or profiles alone. One dynamic family tests the "
-        "freshest publisher-discovered names; the other families remain open-ended. X remains "
-        "conversation context, while commercial authority comes from the approved websites."
+        "search does not depend on hashtags or profiles alone. X remains open-conversation "
+        "context; commercial authority now comes from the approved public websites and reports."
     )
     plan_table = pd.DataFrame(
         [
@@ -2048,8 +1834,6 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
                     if row.get("expert_tier") == "commercial-priority"
                     else "Supporting source context"
                     if row.get("is_expert")
-                    else "Fresh publisher validation"
-                    if row.get("is_dynamic_validation")
                     else "Open discovery"
                 ),
                 "Evidence weight": (
@@ -2695,812 +2479,6 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
                 st.write(f"• {warning}")
 
 
-def _change_label(value: object) -> str:
-    if value is None:
-        return "Not measurable"
-    try:
-        return f"{float(value):+.0f}%"
-    except (TypeError, ValueError):
-        return "Not measurable"
-
-
-def _google_trends_url(trend: dict, *, timeframe: str = "today 12-m") -> str:
-    query = str(trend.get("google_query") or trend.get("query") or trend.get("name") or "")
-    return (
-        "https://trends.google.com/trends/explore?date="
-        + quote(timeframe, safe="")
-        + "&q="
-        + quote(query, safe="")
-    )
-
-
-def _first_editorial_url(trend: dict) -> str:
-    return next(
-        (
-            str(row.get("url") or row.get("source_url") or "")
-            for row in trend.get("commercial_evidence") or []
-            if row.get("url") or row.get("source_url")
-        ),
-        "",
-    )
-
-
-def _editorial_priority_frame(trends: list[dict]) -> pd.DataFrame:
-    rows = []
-    for index, trend in enumerate(trends, start=1):
-        metrics = trend.get("google_trends_metrics") or {}
-        rows.append(
-            {
-                "Rank": index,
-                "Trend": trend.get("name"),
-                "Action": business_decision(trend).upper(),
-                "Publishers": int(trend.get("publisher_count") or 0),
-                "Articles": int(
-                    trend.get("article_count")
-                    or trend.get("commercial_article_count")
-                    or 0
-                ),
-                "Editorial consensus": f"{float(trend.get('editorial_consensus_score') or 0):.0f}/100",
-                "Final priority": f"{float(trend.get('ranking_score') or 0):.0f}/100",
-                "Google WoW": _change_label(
-                    metrics.get("week_over_week_change_percent")
-                ),
-                "Google YoY": _change_label(
-                    metrics.get("year_over_year_change_percent")
-                ),
-                "HULA opportunity": f"{float(trend.get('hula_opportunity_score') or 0):.0f}/100",
-                "Newest article": str(trend.get("newest_published_at") or "")[:10]
-                or "Date unavailable",
-                "First article": _first_editorial_url(trend),
-            }
-        )
-    return pd.DataFrame(rows)
-
-
-def _editorial_evidence_frame(trend: dict) -> pd.DataFrame:
-    rows = []
-    for row in trend.get("commercial_evidence") or []:
-        rows.append(
-            {
-                "Publisher": row.get("publisher") or row.get("source_name"),
-                "Article": row.get("article_title") or row.get("title"),
-                "Published": str(row.get("published_at") or "")[:10]
-                or "Date unavailable",
-                "How it was found": row.get("extraction_method")
-                or row.get("evidence_kind"),
-                "Evidence": row.get("explicit_label")
-                or row.get("evidence_summary"),
-                "Source": row.get("url") or row.get("source_url"),
-            }
-        )
-    return pd.DataFrame(rows)
-
-
-def editorial_this_week(snapshot: dict) -> None:
-    meta = snapshot.get("meta") or {}
-    trends = list(snapshot.get("trends") or [])
-    updated = hk_time(str(meta.get("generated_at") or ""))
-    page_header(
-        f"WEEK {updated.isocalendar().week} · EDITORIAL CONSENSUS",
-        "What fashion editors are converging on now.",
-        "Recent publisher articles discover the ideas. GPT extracts specific trends. Independent overlap raises priority, and Google Trends shows whether people are searching too.",
-    )
-    mode_banner(meta)
-    raw = meta.get("raw_counts") or {}
-    metrics = st.columns(4)
-    metrics[0].metric(
-        "Articles scanned",
-        int(raw.get("editorial_articles_scanned") or 0),
-        f"last {21} days",
-    )
-    metrics[1].metric(
-        "Publisher overlaps",
-        int(raw.get("editorial_overlap_trends") or 0),
-        "named by 2+ independent sites",
-    )
-    metrics[2].metric(
-        "Google charts",
-        int(raw.get("google_chart_ready_terms") or 0),
-        str((meta.get("google_trends") or {}).get("market") or "Worldwide"),
-    )
-    metrics[3].metric(
-        "Updated",
-        updated.strftime("%d %b · %H:%M"),
-        "Hong Kong time",
-    )
-
-    section_header("01 · Weekly ranking", "Overlap first, Google movement second")
-    if not trends:
-        st.warning("No recent editorial trends are available. Run a live refresh in Data & Setup.")
-        return
-    ranking = _editorial_priority_frame(trends)
-    st.dataframe(
-        ranking,
-        hide_index=True,
-        width="stretch",
-        height=min(660, 38 * len(ranking) + 44),
-        column_config={
-            "First article": st.column_config.LinkColumn("First article"),
-        },
-    )
-    st.caption(
-        "A trend rises when separate publishers name the same concrete idea. A single-publisher find can still enter a small test when Google interest accelerates sharply."
-    )
-
-    section_header("02 · Signal board", "The strongest editorial opportunities")
-    trend_cards(trends, min(4, len(trends)))
-    decision_legend()
-
-    section_header("03 · Google movement", "Plot the exact term selected from the articles")
-    selected_name = st.selectbox(
-        "Trend to plot",
-        [str(trend.get("name") or "") for trend in trends],
-        key="weekly_editorial_plot",
-    )
-    selected = next(trend for trend in trends if trend.get("name") == selected_name)
-    google_metrics = selected.get("google_trends_metrics") or {}
-    summary = st.columns(4)
-    summary[0].metric(
-        "Google query",
-        str(selected.get("google_query") or selected.get("query") or selected_name),
-    )
-    summary[1].metric(
-        "Week on week",
-        _change_label(google_metrics.get("week_over_week_change_percent")),
-    )
-    summary[2].metric(
-        "Year on year",
-        _change_label(google_metrics.get("year_over_year_change_percent")),
-    )
-    summary[3].metric(
-        "Publisher overlap",
-        int(selected.get("publisher_count") or 0),
-        str(selected.get("overlap_label") or ""),
-    )
-    if selected.get("recent_chart_ready"):
-        chart_or_quality_note(
-            [selected],
-            series_key="recent_display_series",
-            chart_ready_key="recent_chart_ready",
-            chart_key="weekly_editorial_recent_chart",
-        )
-        st.caption("Recent movement uses the stored 90-day Google Trends timeline.")
-    else:
-        chart_or_quality_note([selected], chart_key="weekly_editorial_primary_context_chart")
-    with st.expander("Show the 12-month Google context"):
-        chart_or_quality_note([selected], chart_key="weekly_editorial_12m_chart")
-    st.link_button(
-        "Open this exact query in Google Trends",
-        _google_trends_url(selected),
-    )
-
-    section_header("04 · Publisher proof", "The articles behind the selected trend")
-    evidence = _editorial_evidence_frame(selected)
-    if evidence.empty:
-        st.info("No article-level evidence was stored for this trend.")
-    else:
-        st.dataframe(
-            evidence,
-            hide_index=True,
-            width="stretch",
-            column_config={"Source": st.column_config.LinkColumn("Read article")},
-        )
-
-    section_header("05 · Catalogue opportunity", "HULA pieces that can answer the signal")
-    selected_recommendations = recommendation_rows(snapshot, str(selected.get("id") or ""))
-    if selected_recommendations:
-        render_product_grid(snapshot, selected_recommendations, count=6)
-    else:
-        st.info("No current catalogue product cleared the matching threshold for this trend.")
-
-
-def editorial_trend_radar(snapshot: dict) -> None:
-    meta = snapshot.get("meta") or {}
-    trends = list(snapshot.get("trends") or [])
-    collection = meta.get("editorial_collection") or meta.get("commercial_collection") or {}
-    source_rows = collection.get("source_status") or {}
-    page_header(
-        "EDITORIAL RADAR · RECENT COVERAGE",
-        "See where the fashion press agrees.",
-        "Every candidate begins in a recent article. The radar keeps single-source discoveries visible, but rewards independent publisher overlap before looking at Google search momentum.",
-    )
-    mode_banner(meta)
-    coverage = st.columns(4)
-    coverage[0].metric("Publishers monitored", len(EDITORIAL_PUBLISHERS))
-    coverage[1].metric(
-        "Publishers with trends",
-        sum(int(row.get("named_trends") or 0) > 0 for row in source_rows.values()),
-    )
-    coverage[2].metric("Concrete trends", len(trends))
-    coverage[3].metric(
-        "Actionable now",
-        sum(bool(trend.get("decision_ready")) for trend in trends),
-    )
-
-    section_header("Publisher scan", "What was read during the last refresh")
-    if source_rows:
-        st.dataframe(
-            pd.DataFrame(
-                [
-                    {
-                        "Publisher": row.get("publisher") or key,
-                        "State": row.get("state"),
-                        "Articles loaded": int(row.get("articles_loaded") or 0),
-                        "Trends extracted": int(row.get("named_trends") or 0),
-                        "Routes": ", ".join(row.get("discovery_methods") or []),
-                        "First issue": str((row.get("errors") or [""])[0]),
-                    }
-                    for key, row in source_rows.items()
-                ]
-            ),
-            hide_index=True,
-            width="stretch",
-        )
-    else:
-        st.info("Run a live refresh to create publisher-level scan diagnostics.")
-
-    section_header("Consensus inventory", "Every specific trend found in the article window")
-    if trends:
-        st.dataframe(
-            _editorial_priority_frame(trends),
-            hide_index=True,
-            width="stretch",
-            height=min(720, 38 * len(trends) + 44),
-            column_config={
-                "First article": st.column_config.LinkColumn("First article"),
-            },
-        )
-    else:
-        st.warning("No trend inventory is available yet.")
-        return
-
-    actions = [business_decision(trend) for trend in trends]
-    action_metrics = st.columns(3)
-    action_metrics[0].metric("Act now", actions.count("Act now"), "3+ publishers + Google")
-    action_metrics[1].metric("Test this week", actions.count("Test this week"), "overlap or sharp search acceleration")
-    action_metrics[2].metric("Watch", actions.count("Watch"), "promising but not confirmed")
-
-    section_header("Deep dive", "Inspect one trend, its chart and every article")
-    selected_name = st.selectbox(
-        "Trend",
-        [str(trend.get("name") or "") for trend in trends],
-        key="editorial_radar_trend",
-    )
-    selected = next(trend for trend in trends if trend.get("name") == selected_name)
-    left, right = st.columns([1.6, 1], gap="large")
-    with left:
-        chart_range = st.selectbox(
-            "Google chart range",
-            ["Recent 90 days", "12-month context"],
-            key="editorial_chart_range",
-        )
-        if chart_range == "Recent 90 days" and selected.get("recent_chart_ready"):
-            chart_or_quality_note(
-                [selected],
-                series_key="recent_display_series",
-                chart_ready_key="recent_chart_ready",
-            )
-        else:
-            chart_or_quality_note([selected])
-        st.link_button("Open in Google Trends", _google_trends_url(selected))
-    with right:
-        metrics = selected.get("google_trends_metrics") or {}
-        st.markdown(f"### {selected.get('name')}")
-        st.write(selected.get("why_now"))
-        st.markdown(
-            f"""
-            <div class="score-row"><span>Business action</span><strong>{html.escape(business_decision(selected))}</strong></div>
-            <div class="score-row"><span>Independent publishers</span><strong>{int(selected.get('publisher_count') or 0)}</strong></div>
-            <div class="score-row"><span>Recent articles</span><strong>{int(selected.get('article_count') or selected.get('commercial_article_count') or 0)}</strong></div>
-            <div class="score-row"><span>Editorial consensus</span><strong>{float(selected.get('editorial_consensus_score') or 0):.0f}</strong></div>
-            <div class="score-row"><span>Google week on week</span><strong>{html.escape(_change_label(metrics.get('week_over_week_change_percent')))}</strong></div>
-            <div class="score-row"><span>Google year on year</span><strong>{html.escape(_change_label(metrics.get('year_over_year_change_percent')))}</strong></div>
-            <div class="score-row"><span>Evidence confidence</span><strong>{float(selected.get('confidence_score') or 0):.0f}</strong></div>
-            <div class="score-row"><span>HULA opportunity</span><strong>{float(selected.get('hula_opportunity_score') or 0):.0f}</strong></div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-    evidence = _editorial_evidence_frame(selected)
-    if not evidence.empty:
-        st.dataframe(
-            evidence,
-            hide_index=True,
-            width="stretch",
-            column_config={"Source": st.column_config.LinkColumn("Read article")},
-        )
-    warnings = list(selected.get("warnings") or [])
-    if warnings:
-        with st.expander(f"Evidence notes ({len(warnings)})"):
-            for warning in warnings:
-                st.write(f"• {warning}")
-
-
-def editorial_data_setup(snapshot: dict, settings: Settings) -> None:
-    page_header(
-        "DATA & SETUP · EDITORIAL CONSENSUS",
-        "A simpler pipeline you can actually operate.",
-        "Connect OpenAI, SerpApi Google Trends and the HULA catalogue. The publisher scan itself uses public pages and needs no social-scraping account.",
-    )
-    meta = snapshot.get("meta") or {}
-    status = meta.get("source_status") or {}
-    notice = st.session_state.pop("catalogue_notice", "")
-    if notice:
-        st.success(notice)
-    catalogue_detail = (
-        f"CSV snapshot · {len(snapshot.get('products') or []):,} products"
-        if meta.get("catalogue_source") == "csv"
-        else f"Shopify credentials: {'added' if settings.shopify_configured else 'missing'}"
-    )
-    google_meta = meta.get("google_trends") or {}
-    cards = [
-        (
-            "Editorial publishers",
-            str(status.get("editorial_publishers", "ready on refresh")),
-            f"{len(EDITORIAL_PUBLISHERS)} sites · last {settings.editorial_lookback_days} days",
-        ),
-        (
-            "GPT extraction",
-            str(status.get("openai", "configured" if settings.openai_configured else "not configured")),
-            f"Recent article scan · key {'added' if settings.openai_configured else 'missing'}",
-        ),
-        (
-            "Google Trends",
-            str(status.get("google_trends", "ready on refresh")),
-            f"{google_meta.get('market') or settings.google_geo} · SerpApi key {'added' if settings.serpapi_configured else 'missing'}",
-        ),
-        ("HULA catalogue", str(status.get("shopify", "ready")), catalogue_detail),
-        (
-            "Supabase history",
-            str(status.get("supabase", "configured" if settings.supabase_configured else "not configured")),
-            "Optional weekly history",
-        ),
-        (
-            "Wednesday writer",
-            str(status.get("gemini", status.get("openai", "not configured"))),
-            "Uses the ranked evidence and matched HULA products",
-        ),
-    ]
-    for start in range(0, len(cards), 3):
-        columns = st.columns(3)
-        for column, (name, value, detail) in zip(columns, cards[start : start + 3]):
-            with column:
-                st.markdown(
-                    f"""
-                    <div class="source-card">
-                      <div class="source-name">{html.escape(name)}</div>
-                      <div class="source-state"><span class="dot {status_class(value)}"></span>{html.escape(value)}</div>
-                      <div class="micro">{html.escape(detail)}</div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-
-    section_header("The refresh", "Four understandable steps")
-    workflow = st.columns(4)
-    for column, number, title, copy in [
-        (workflow[0], "01", "Read recent articles", "Open the newest trend-relevant pages from the approved publishers."),
-        (workflow[1], "02", "Extract concrete trends", "GPT returns specific items such as long-sleeve white T-shirts—not vague themes."),
-        (workflow[2], "03", "Count publisher overlap", "The same publisher group counts once; more independent sites means higher priority."),
-        (workflow[3], "04", "Plot Google demand", "Query only the extracted terms and save recent and 12-month charts."),
-    ]:
-        with column:
-            st.metric(title, number)
-            st.caption(copy)
-
-    section_header("Publisher panel", "The sites monitored every week")
-    st.dataframe(
-        pd.DataFrame(
-            [
-                {
-                    "Publisher": source.name,
-                    "Window": f"{source.max_age_days} days",
-                    "Article cap": source.max_articles,
-                    "Public section": source.index_urls[0],
-                    "Independent group": source.publisher_group or source.key,
-                }
-                for source in EDITORIAL_PUBLISHERS
-            ]
-        ),
-        hide_index=True,
-        width="stretch",
-        column_config={"Public section": st.column_config.LinkColumn("Public section")},
-    )
-    source_rows = (
-        (meta.get("editorial_collection") or meta.get("commercial_collection") or {}).get("source_status")
-        or {}
-    )
-    if source_rows:
-        with st.expander("Last publisher scan detail", expanded=True):
-            st.dataframe(
-                pd.DataFrame(
-                    [
-                        {
-                            "Publisher": row.get("publisher") or key,
-                            "State": row.get("state"),
-                            "Articles": int(row.get("articles_loaded") or 0),
-                            "Trends": int(row.get("named_trends") or 0),
-                            "Routes": ", ".join(row.get("discovery_methods") or []),
-                            "First issue": str((row.get("errors") or [""])[0]),
-                        }
-                        for key, row in source_rows.items()
-                    ]
-                ),
-                hide_index=True,
-                width="stretch",
-            )
-
-    section_header("Trend quality", "Specific fashion signals only")
-    st.write(
-        "The app accepts concrete garments, accessories, silhouettes, materials, colours and styling ideas. It rejects brands, sale pages, product-card noise and labels such as **fashion**, **pants** or **style** on their own."
-    )
-    filtered_rows = list(meta.get("filtered_terms") or [])
-    if filtered_rows:
-        st.dataframe(
-            pd.DataFrame(
-                [
-                    {
-                        "Removed term": row.get("term"),
-                        "Reason": row.get("reason"),
-                        "Found in": row.get("source"),
-                    }
-                    for row in filtered_rows
-                ]
-            ),
-            hide_index=True,
-            width="stretch",
-        )
-    with st.expander("View the permanent generic-term blocklist"):
-        st.write(", ".join(generic_term_catalogue()))
-
-    section_header("Product catalogue", "Choose CSV upload or the live Shopify API")
-    default_catalogue = catalogue_choice(snapshot)
-    selected_catalogue = st.radio(
-        "Catalogue source",
-        [CATALOGUE_CSV, CATALOGUE_API],
-        index=0 if default_catalogue == CATALOGUE_CSV else 1,
-        horizontal=True,
-        key=CATALOGUE_SELECTOR_KEY,
-    )
-    if selected_catalogue == CATALOGUE_CSV:
-        intro, template = st.columns([2.1, 1], gap="large")
-        with intro:
-            st.write("Upload a Shopify export or the simple HULA template. The normalised catalogue is saved in the dashboard snapshot.")
-            uploaded_catalogue = st.file_uploader(
-                "Product catalogue CSV",
-                type=["csv"],
-                key="product_catalogue_csv_editorial",
-            )
-        with template:
-            if meta.get("catalogue_source") == "csv":
-                st.info(
-                    f"Using **{meta.get('catalogue_filename') or 'uploaded CSV'}** with **{len(snapshot.get('products') or []):,} products**."
-                )
-            st.download_button(
-                "Download simple CSV template",
-                data=SIMPLE_CSV_TEMPLATE,
-                file_name="hula_product_catalogue_template.csv",
-                mime="text/csv",
-                width="stretch",
-            )
-        if uploaded_catalogue is not None:
-            try:
-                import_result = parse_product_csv(
-                    uploaded_catalogue.getvalue(),
-                    storefront_url=settings.shopify_storefront_url,
-                )
-                st.success(
-                    f"{import_result.source_rows:,} rows became {len(import_result.products):,} normalised products."
-                )
-                preview = pd.DataFrame(
-                    [
-                        {
-                            "Title": product.get("title"),
-                            "Designer": product.get("vendor"),
-                            "Type": product.get("product_type"),
-                            "Status": product.get("status"),
-                            "Stock": product.get("inventory"),
-                            "Price": f"{product.get('currency', 'HKD')} {float(product.get('price') or 0):,.0f}",
-                        }
-                        for product in import_result.products[:20]
-                    ]
-                )
-                st.dataframe(preview, hide_index=True, width="stretch", height=260)
-                for warning in import_result.warnings:
-                    st.warning(warning)
-                if st.button("Use this CSV catalogue", type="primary", key="apply_editorial_catalogue_csv"):
-                    updated_snapshot = dict(snapshot)
-                    updated_snapshot["products"] = import_result.products
-                    updated_snapshot["recommendations"] = match_products(
-                        snapshot.get("trends") or [], import_result.products
-                    )
-                    updated_meta = dict(meta)
-                    updated_meta.update(
-                        {
-                            "generated_at": datetime.now(tz=timezone.utc).isoformat(),
-                            "mode": "hybrid",
-                            "catalogue_source": "csv",
-                            "catalogue_filename": Path(uploaded_catalogue.name).name,
-                            "catalogue_format": import_result.source_format,
-                            "catalogue_source_rows": import_result.source_rows,
-                            "catalogue_warnings": import_result.warnings,
-                            "source_status": {
-                                **status,
-                                "shopify": f"CSV snapshot · {len(import_result.products):,} products",
-                            },
-                        }
-                    )
-                    updated_snapshot["meta"] = updated_meta
-                    save_snapshot(updated_snapshot, settings.snapshot_path)
-                    st.session_state.snapshot = updated_snapshot
-                    st.session_state.catalogue_notice = (
-                        f"{len(import_result.products):,} products imported from {Path(uploaded_catalogue.name).name}."
-                    )
-                    st.rerun()
-            except Exception as exc:
-                st.error(str(exc))
-    else:
-        st.write("The live Shopify connector reads active products, inventory, prices, tags and images. It does not write to the store.")
-        if not settings.shopify_configured:
-            st.warning("Add Shopify credentials or switch to Upload CSV.")
-        if st.button("Test Shopify API", disabled=not settings.shopify_configured, width="stretch"):
-            try:
-                result = ShopifyConnector(
-                    settings.shopify_shop,
-                    settings.shopify_client_id,
-                    settings.shopify_client_secret,
-                    settings.shopify_admin_access_token,
-                    settings.shopify_api_version,
-                    settings.shopify_storefront_url,
-                ).test_connection()
-                st.success(f"Connected to {result.get('shop_name')}.")
-            except Exception as exc:
-                st.error(safe_error(exc, [settings.shopify_client_secret, settings.shopify_admin_access_token]))
-
-    section_header("Connection checks", "Test the three inputs used by trend discovery")
-    checks = st.columns(3)
-    with checks[0]:
-        if st.button("Test publisher pages", width="stretch"):
-            try:
-                result = CommercialSourceCollector(
-                    sources=EDITORIAL_PUBLISHERS,
-                    timeout_seconds=settings.commercial_timeout_seconds,
-                    max_workers=settings.commercial_max_workers,
-                    serpapi_api_key=settings.serpapi_api_key,
-                    serpapi_endpoint=settings.serpapi_endpoint,
-                ).test_connection()
-                st.session_state.editorial_publisher_test = {
-                    "ok": bool(result.get("evidence_rows")),
-                    "detail": (
-                        f"{int(result.get('publishers_live') or 0)} live, "
-                        f"{int(result.get('publishers_partial') or 0)} partial, "
-                        f"{int(result.get('publishers_failed') or 0)} failed · "
-                        f"{int(result.get('named_trends') or 0)} fallback labels."
-                    ),
-                }
-            except Exception as exc:
-                st.session_state.editorial_publisher_test = {"ok": False, "detail": safe_error(exc)}
-        result = st.session_state.get("editorial_publisher_test")
-        if isinstance(result, dict):
-            (st.success if result.get("ok") else st.error)(str(result.get("detail")))
-        st.caption("Loads each public publisher independently; one blocked site does not stop the others.")
-    with checks[1]:
-        if st.button("Test OpenAI article extraction", disabled=not settings.openai_configured, width="stretch"):
-            try:
-                result = OpenAIResponsesConnector(
-                    settings.openai_api_key,
-                    api_url=settings.openai_api_url,
-                    luna_model=settings.openai_luna_model,
-                    terra_model=settings.openai_terra_model,
-                    sol_model=settings.openai_sol_model,
-                    timeout_seconds=settings.openai_timeout_seconds,
-                ).test_connection()
-                st.session_state.editorial_openai_test = {"ok": True, "detail": f"Connected to {result.get('model')}."}
-            except Exception as exc:
-                st.session_state.editorial_openai_test = {"ok": False, "detail": safe_error(exc, [settings.openai_api_key])}
-        result = st.session_state.get("editorial_openai_test")
-        if isinstance(result, dict):
-            (st.success if result.get("ok") else st.error)(str(result.get("detail")))
-        st.caption("GPT reads bounded recent-article text and returns structured trend candidates.")
-    with checks[2]:
-        if st.button("Test Google Trends", disabled=not settings.serpapi_configured, width="stretch"):
-            try:
-                result = GoogleTrendsConnector(
-                    geo=settings.google_geo,
-                    timeframe=settings.google_discovery_timeframe,
-                    category=settings.google_category,
-                    anchor_term=settings.google_anchor_term,
-                    provider=settings.google_provider,
-                    serpapi_api_key=settings.serpapi_api_key,
-                    serpapi_endpoint=settings.serpapi_endpoint,
-                    serpapi_timeout_seconds=settings.serpapi_timeout_seconds,
-                    max_terms=settings.google_max_terms,
-                    max_discovery_seeds=0,
-                    connect_timeout_seconds=settings.google_connect_timeout_seconds,
-                    read_timeout_seconds=settings.google_read_timeout_seconds,
-                ).test_connection()
-                st.session_state.editorial_google_test = {
-                    "ok": True,
-                    "detail": f"{int(result.get('points') or 0)} live timeline points from {result.get('market')}.",
-                }
-            except Exception as exc:
-                st.session_state.editorial_google_test = {"ok": False, "detail": safe_error(exc, [settings.serpapi_api_key])}
-        result = st.session_state.get("editorial_google_test")
-        if isinstance(result, dict):
-            (st.success if result.get("ok") else st.error)(str(result.get("detail")))
-        st.caption("Measures only publisher-discovered queries; it does not discover extra seed terms.")
-
-    section_header("Live refresh", "Scan articles, extract trends, plot demand and match HULA products")
-    include_llm = st.checkbox(
-        "Use GPT to scan article text",
-        value=settings.openai_configured,
-        disabled=not settings.openai_configured,
-    )
-    include_editorial = st.checkbox(
-        "Generate the evidence-locked Wednesday blog after ranking",
-        value=settings.openai_configured or settings.gemini_configured,
-    )
-    catalog_source, catalog_products = catalogue_refresh_args(snapshot)
-    refresh_ready = not (
-        (catalog_source == "csv" and not catalog_products)
-        or (catalog_source == "shopify_api" and not settings.shopify_configured)
-    )
-    if not refresh_ready:
-        st.info("Apply a product CSV or configure Shopify before running the full refresh.")
-    refresh_label = (
-        "Run editorial-consensus refresh with CSV catalogue"
-        if catalog_source == "csv"
-        else "Run editorial-consensus refresh + Shopify"
-    )
-    if st.button(refresh_label, type="primary", disabled=not refresh_ready):
-        with st.spinner("Reading recent fashion articles, extracting trends and plotting Google demand…"):
-            try:
-                st.session_state.snapshot = refresh_snapshot(
-                    settings,
-                    use_llm=include_llm,
-                    persist=True,
-                    catalog_source=catalog_source,
-                    catalog_products=catalog_products,
-                    generate_editorial=include_editorial,
-                )
-                st.session_state.catalogue_notice = "Editorial-consensus refresh complete."
-                st.rerun()
-            except Exception as exc:
-                st.error(
-                    "Refresh stopped safely: "
-                    + safe_error(
-                        exc,
-                        [
-                            settings.openai_api_key,
-                            settings.serpapi_api_key,
-                            settings.supabase_secret_key,
-                            settings.shopify_client_secret,
-                            settings.shopify_admin_access_token,
-                        ],
-                    )
-                )
-    st.caption("The scheduled workflow remains Wednesday at 09:17 Hong Kong time.")
-
-    section_header("Ranking method", "Simple enough to explain in one minute")
-    method = st.columns(3)
-    method[0].metric("Editorial ranking", "70%")
-    method[0].caption("Independent publisher consensus, freshness, repetition and extraction confidence.")
-    method[1].metric("Google validation", "30%")
-    method[1].caption("Recent interest, week-on-week change, slope and 12-month context.")
-    method[2].metric("Social scraping", "0%")
-    method[2].caption("X and Instagram are deliberately not queried or required.")
-    st.markdown(
-        '<div class="method-note"><strong>Within editorial consensus:</strong> 55% independent publisher overlap, 25% freshness, 10% repeated article coverage and 10% extraction confidence. Same-group editions count once. A saved chart is Google’s relative 0–100 interest index, not absolute search volume.</div>',
-        unsafe_allow_html=True,
-    )
-    st.markdown(
-        '<div class="method-note"><strong>Data minimisation:</strong> article text is transient model input and is not stored. Weekly files keep source metadata and short excerpts only. Shopify is read-only. No customer, order or payment data is accessed.</div>',
-        unsafe_allow_html=True,
-    )
-
-    section_header("Operations", "Safe diagnostics and optional output checks")
-    safe_report = {
-        "created_at": datetime.now(tz=timezone.utc).isoformat(),
-        "app_build": APP_BUILD,
-        "pipeline_version": DISCOVERY_PIPELINE_VERSION,
-        "dataset_mode": meta.get("mode"),
-        "dataset_generated_at": meta.get("generated_at"),
-        "catalogue_source": meta.get("catalogue_source"),
-        "configuration_loaded": {
-            "editorial_publishers": True,
-            "openai": settings.openai_configured,
-            "google_trends": settings.serpapi_configured,
-            "shopify_api": settings.shopify_configured,
-            "supabase": settings.supabase_configured,
-            "gemini_fallback": settings.gemini_configured,
-        },
-        "editorial_collection": meta.get("editorial_collection") or {},
-        "google_trends": meta.get("google_trends") or {},
-        "source_status": meta.get("source_status") or {},
-        "raw_counts": meta.get("raw_counts") or {},
-        "refresh_notes": meta.get("warnings") or [],
-        "privacy": "No API keys, tokens, passwords, client secrets or article bodies are included.",
-    }
-    st.download_button(
-        "Download safe diagnostic report",
-        data=json.dumps(safe_report, ensure_ascii=False, indent=2),
-        file_name="hula-editorial-consensus-diagnostics.json",
-        mime="application/json",
-        help="Shareable status information only; secret values and article bodies are excluded.",
-    )
-    output_checks = st.columns(2)
-    with output_checks[0]:
-        if st.button(
-            "Test Supabase history",
-            disabled=not settings.supabase_configured,
-            width="stretch",
-        ):
-            try:
-                result = SupabaseStore(
-                    settings.supabase_url,
-                    settings.supabase_secret_key,
-                    snapshot_table=settings.supabase_snapshot_table,
-                    blog_table=settings.supabase_blog_table,
-                ).test_connection()
-                st.session_state.editorial_supabase_test = {
-                    "ok": True,
-                    "detail": (
-                        f"Connected to {result.get('snapshot_table')} · "
-                        f"{int(result.get('rows_visible') or 0)} row(s) visible."
-                    ),
-                }
-            except Exception as exc:
-                st.session_state.editorial_supabase_test = {
-                    "ok": False,
-                    "detail": safe_error(exc, [settings.supabase_secret_key]),
-                }
-        result = st.session_state.get("editorial_supabase_test")
-        if isinstance(result, dict):
-            (st.success if result.get("ok") else st.error)(str(result.get("detail")))
-        st.caption("Optional storage for weekly snapshots and published blog history.")
-    with output_checks[1]:
-        if st.button(
-            "Test Gemini fallback",
-            disabled=not settings.gemini_configured,
-            width="stretch",
-        ):
-            try:
-                result = GeminiResearchConnector(
-                    settings.gemini_api_key,
-                    model=settings.gemini_model,
-                    api_url=settings.gemini_api_url,
-                    timeout_seconds=settings.gemini_timeout_seconds,
-                    grounding_enabled=False,
-                ).test_connection()
-                st.session_state.editorial_gemini_test = {
-                    "ok": True,
-                    "detail": f"Connected successfully to {result.get('model')}.",
-                }
-            except Exception as exc:
-                st.session_state.editorial_gemini_test = {
-                    "ok": False,
-                    "detail": safe_error(exc, [settings.gemini_api_key]),
-                }
-        result = st.session_state.get("editorial_gemini_test")
-        if isinstance(result, dict):
-            (st.success if result.get("ok") else st.error)(str(result.get("detail")))
-        st.caption("Optional evidence-locked fallback for the Wednesday writer.")
-
-    usage = list(meta.get("openai_usage") or [])
-    if usage:
-        section_header("Model usage", "Last OpenAI refresh")
-        st.metric(
-            "Estimated OpenAI cost",
-            f"US${sum(float(row.get('estimated_cost_usd') or 0) for row in usage):.4f}",
-        )
-        st.dataframe(pd.DataFrame(usage), hide_index=True, width="stretch")
-    warnings = list(meta.get("warnings") or [])
-    if warnings:
-        with st.expander(f"Refresh notes ({len(warnings)})"):
-            for warning in warnings:
-                st.write(f"• {warning}")
-
-
 def sidebar(snapshot: dict, settings: Settings) -> str:
     with st.sidebar:
         st.image(cropped_logo(), width=112)
@@ -3512,7 +2490,7 @@ def sidebar(snapshot: dict, settings: Settings) -> str:
             "Navigation",
             [
                 "THIS WEEK",
-                "EDITORIAL RADAR",
+                "TREND RADAR",
                 "PRODUCT MATCH",
                 "CAMPAIGN STUDIO",
                 "WEDNESDAY BLOG",
@@ -3536,7 +2514,7 @@ def sidebar(snapshot: dict, settings: Settings) -> str:
             width="stretch",
             disabled=refresh_disabled,
         ):
-            with st.spinner("Reading recent fashion articles, extracting trends and plotting Google demand…"):
+            with st.spinner("Running the weekly topic, expert, search and catalogue pipeline…"):
                 try:
                     st.session_state.snapshot = refresh_snapshot(
                         settings,
@@ -3583,12 +2561,8 @@ def main() -> None:
                     exc,
                     [settings.supabase_secret_key],
                 )
-        st.session_state.snapshot = guard_legacy_discovery_snapshot(
-            upgrade_snapshot_to_v2(sanitize_snapshot_trends(selected))
-        )
-    snapshot = guard_legacy_discovery_snapshot(
-        upgrade_snapshot_to_v2(sanitize_snapshot_trends(st.session_state.snapshot))
-    )
+        st.session_state.snapshot = upgrade_snapshot_to_v2(sanitize_snapshot_trends(selected))
+    snapshot = upgrade_snapshot_to_v2(sanitize_snapshot_trends(st.session_state.snapshot))
     st.session_state.snapshot = snapshot
     page = sidebar(snapshot, settings)
     boot_warning = st.session_state.pop("snapshot_boot_warning", "")
@@ -3598,9 +2572,9 @@ def main() -> None:
             f"aggregate is displayed. {boot_warning}"
         )
     if page == "THIS WEEK":
-        editorial_this_week(snapshot)
-    elif page == "EDITORIAL RADAR":
-        editorial_trend_radar(snapshot)
+        this_week(snapshot)
+    elif page == "TREND RADAR":
+        trend_radar(snapshot)
     elif page == "PRODUCT MATCH":
         product_match_page(snapshot)
     elif page == "CAMPAIGN STUDIO":
@@ -3608,7 +2582,7 @@ def main() -> None:
     elif page == "WEDNESDAY BLOG":
         weekly_blog(snapshot, settings)
     else:
-        editorial_data_setup(snapshot, settings)
+        data_setup(snapshot, settings)
 
 
 if __name__ == "__main__":

@@ -118,11 +118,11 @@ def test_x_plan_stops_after_first_capacity_error(monkeypatch) -> None:
 def test_google_cache_is_scoped_to_market_and_timeframe() -> None:
     snapshot = {
         "google_cache": {
-            "schema_version": "5.0",
+            "schema_version": "3.0",
             "collected_at": datetime.now(tz=timezone.utc).isoformat(),
             "market": "HK",
-            "context_timeframe": "today 12-m",
-            "discovery_timeframe": "today 3-m",
+            "context_timeframe": "today 3-m",
+            "discovery_timeframe": "now 7-d",
             "context_series": {
                 "black bags": [{"date": "2026-07-01", "value": 50}]
             },

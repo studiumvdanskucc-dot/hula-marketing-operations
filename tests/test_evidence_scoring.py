@@ -47,11 +47,10 @@ def daily_series(days: int = 90) -> list[dict]:
 
 def test_recency_factors_match_methodology() -> None:
     assert recency_factor(NOW, now=NOW) == 1.0
-    assert recency_factor(NOW - timedelta(days=3), now=NOW) == 0.90
-    assert recency_factor(NOW - timedelta(days=7), now=NOW) == 0.75
-    assert recency_factor(NOW - timedelta(days=14), now=NOW) == 0.55
-    assert recency_factor(NOW - timedelta(days=21), now=NOW) == 0.35
-    assert recency_factor(NOW - timedelta(days=22), now=NOW) == 0.10
+    assert recency_factor(NOW - timedelta(days=3), now=NOW) == 0.85
+    assert recency_factor(NOW - timedelta(days=7), now=NOW) == 0.65
+    assert recency_factor(NOW - timedelta(days=14), now=NOW) == 0.35
+    assert recency_factor(NOW - timedelta(days=15), now=NOW) == 0.10
 
 
 def test_missing_google_is_null_and_weights_are_redistributed() -> None:
@@ -71,7 +70,7 @@ def test_missing_google_is_null_and_weights_are_redistributed() -> None:
     assert trend["score_breakdown"]["google_trends"] is None
     assert trend["google_trends_metrics"]["current_week_mean"] is None
     assert "Google Trends" in trend["missing_components"]
-    assert trend["data_completeness_score"] == pytest.approx(75.0)
+    assert trend["data_completeness_score"] == pytest.approx(65.0)
     assert sum(trend["component_weights"].values()) == pytest.approx(1.0, abs=0.001)
 
 
@@ -159,7 +158,7 @@ def test_strong_current_cross_source_signal_can_be_ready_without_google() -> Non
         now=NOW,
     )
     assert trend["score_breakdown"]["google_trends"] is None
-    assert trend["data_completeness_score"] == pytest.approx(75.0)
+    assert trend["data_completeness_score"] == pytest.approx(80.0)
     assert trend["decision_ready"] is True
     assert trend["confidence_score"] >= 55
 

@@ -262,9 +262,6 @@ def test_generic_category_filter_keeps_specific_combinations() -> None:
         "elegant shoes",
         "new skirt",
         "stylish pants",
-        "skirt and",
-        "any outfit",
-        "bag https",
     ):
         assert generic_trend_reason(broad)
 

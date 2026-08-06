@@ -7,3 +7,8 @@ __pycache__/
 .pytest_cache/
 .streamlit/secrets.toml
 data/latest_snapshot.json.tmp
+data/marketing_operations_demo.sqlite3
+data/marketing_operations_demo.sqlite3-*
+data/generated/
+*.coverage
+htmlcov/

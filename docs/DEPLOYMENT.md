@@ -42,6 +42,9 @@ Open **Repository → Settings → Secrets and variables → Actions → New rep
 secret**. Add:
 
 - `SERPAPI_API_KEY`
+- `APIFY_TOKEN`
+- `APIFY_X_TASK_ID`
+- `APIFY_X_TASK_INPUT_JSON` with `{}`
 - `OPENAI_API_KEY` for the recommended Luna/Terra/Sol path
 - `OPENROUTER_API_KEY`
 - `OPENROUTER_SITE_URL` after Streamlit gives you the final URL
@@ -69,9 +72,9 @@ are added.
 5. Open **Advanced settings → Secrets**.
 6. Copy `.streamlit/secrets.toml.example` into the box and replace the
    placeholders. At minimum, add the catalogue route, SerpApi, OpenAI and
-   team-password values. Supabase, OpenRouter and Gemini are optional.
+   team-password values. Apify, Supabase, OpenRouter and Gemini are optional.
 7. Select **Deploy**.
-8. Open the final URL and confirm the sidebar says **Build 2026.08.06.4**.
+8. Open the final URL and confirm the sidebar says **Build 2026.08.06.2**.
 
 The Streamlit and GitHub secrets stores are separate. The weekly Action needs
 its own copy of every secret used during an automated refresh.
@@ -99,16 +102,13 @@ weekly source of `data/latest_snapshot.json`.
 
 1. Wake/open the Streamlit app.
 2. Confirm the team password works.
-3. Confirm **Build 2026.08.06.4**.
-   An included pre-4.0 snapshot may initially say **STALE DATA**; this is
-   intentional and prevents an old ranking from being treated as current.
-4. Run **Test publisher pages**, **Test OpenAI article extraction** and
-   **Test Google Trends**.
-5. Optionally test Supabase or the Gemini writing fallback.
+3. Confirm **Build 2026.08.06.2**.
+4. Run **Test Google Trends (Worldwide)**; it should report SerpApi and one search.
+5. Run the publisher-page and OpenAI tests, plus any configured X, hashtag,
+   Supabase, OpenRouter or Gemini fallback tests.
 6. Run the GitHub workflow manually.
 7. Confirm it creates a `data: refresh weekly HULA trend snapshot` commit.
-8. Reopen the dashboard and confirm the refresh timestamp, recent articles,
-   publisher overlaps and Google charts.
+8. Reopen the dashboard and confirm the refresh timestamp and live sources.
 
 The app sleeping between weekly visits is safe. The only inconvenience is the
 one-click wake page on the first visit after a quiet period.

@@ -28,12 +28,14 @@ DEFAULT_TOPIC_GROUPS: tuple[dict[str, Any], ...] = (
         "terms": (
             '"colour trend"',
             '"color trend"',
-            '"fabric trend"',
-            '"material trend"',
-            '"print trend"',
-            '"pattern trend"',
-            '"texture trend"',
-            '"fashion colour forecast"',
+            '"butter yellow"',
+            '"suede bag"',
+            '"raffia bag"',
+            '"sheer dressing"',
+            '"lace trend"',
+            '"polka dot"',
+            '"leopard print"',
+            '"metallic fashion"',
         ),
     },
     {
@@ -41,26 +43,31 @@ DEFAULT_TOPIC_GROUPS: tuple[dict[str, Any], ...] = (
         "label": "Shapes & silhouettes",
         "terms": (
             '"silhouette trend"',
-            '"bag shape trend"',
-            '"shoe silhouette trend"',
-            '"dress silhouette trend"',
-            '"skirt silhouette trend"',
-            '"trouser silhouette trend"',
-            '"denim silhouette trend"',
-            '"runway silhouette"',
+            '"east west bag"',
+            '"drop waist"',
+            '"capri pants"',
+            '"maxi skirt"',
+            '"barrel jeans"',
+            '"fisherman sandals"',
+            '"ballet flats"',
+            '"mary jane shoes"',
+            '"statement belt"',
         ),
     },
     {
         "id": "aesthetic",
         "label": "Aesthetics",
         "terms": (
-            '"emerging fashion aesthetic"',
-            '"new style aesthetic"',
-            '"runway aesthetic"',
-            '"street style trend"',
-            '"vintage fashion trend"',
-            '"maximalist fashion trend"',
-            '"minimalist fashion trend"',
+            '"fashion aesthetic"',
+            '"style aesthetic"',
+            '"boho fashion"',
+            '"minimalist fashion"',
+            '"archive fashion"',
+            '"quiet luxury"',
+            '"maximalist fashion"',
+            '"coastal style"',
+            '"street style"',
+            '"vintage fashion"',
         ),
     },
     {
@@ -219,7 +226,6 @@ def build_listening_plan(
     expert_accounts: Iterable[str] = DEFAULT_EXPERT_ACCOUNTS,
     priority_accounts: Iterable[str] = DEFAULT_PRIORITY_COMMERCIAL_ACCOUNTS,
     topic_groups: Iterable[dict[str, Any]] = DEFAULT_TOPIC_GROUPS,
-    validation_terms: Iterable[str] = (),
     expert_chunk_size: int = 8,
 ) -> list[dict[str, Any]]:
     """Build balanced current/previous X searches for ScrapeBadger Advanced Search."""
@@ -228,34 +234,8 @@ def build_listening_plan(
     windows = _window_bounds(current_time)
     plan: list[dict[str, Any]] = []
 
-    groups = list(topic_groups)
-    cleaned_validation_terms: list[str] = []
-    for raw in validation_terms:
-        value = re.sub(r"[^A-Za-z0-9&' /-]+", " ", str(raw or ""))
-        value = re.sub(r"\s+", " ", value).strip(" -/")[:80]
-        if value and value.casefold() not in {
-            term.casefold() for term in cleaned_validation_terms
-        }:
-            cleaned_validation_terms.append(value)
-        if len(cleaned_validation_terms) >= 12:
-            break
-    if cleaned_validation_terms:
-        validation_group = {
-            "id": "publisher-validation",
-            "label": "Fresh publisher validation",
-            "terms": tuple(f'"{term}"' for term in cleaned_validation_terms),
-            "is_dynamic_validation": True,
-        }
-        # Keep the governed run count unchanged: on a live refresh the
-        # dynamic validation family replaces the generic behaviour/resale
-        # family instead of creating two additional paid Actor runs.
-        if groups:
-            groups[-1] = validation_group
-        else:
-            groups.append(validation_group)
-
     for window in windows:
-        for group in groups:
+        for group in topic_groups:
             terms = [str(term).strip() for term in group.get("terms", ()) if str(term).strip()]
             if not terms:
                 continue
@@ -267,9 +247,6 @@ def build_listening_plan(
                     "window": window["id"],
                     "window_label": window["label"],
                     "is_expert": False,
-                    "is_dynamic_validation": bool(
-                        group.get("is_dynamic_validation")
-                    ),
                     "input": {
                         "mode": "Advanced Search",
                         "query": _query(

@@ -1,48 +1,21 @@
 # Changelog
 
-## Build 2026.08.06.4 — Publisher-First Editorial Consensus
+## Build 2026.08.06-marketing.2 — Campaign-First Operations UI
 
-- Replaced open social discovery with a 21-day scan of seven fashion
-  publishers: Who What Wear, Vogue, ELLE, Harper's Bazaar, Marie Claire,
-  Glamour and InStyle.
-- Added bounded article documents and strict GPT extraction for specific
-  garments, accessories, silhouettes, colours, materials and styling ideas.
-- Added independent publisher-group consensus with overlap as the strongest
-  input, plus freshness, article repetition and extraction confidence.
-- Restricted Google Trends to the publisher-discovered shortlist and stores
-  recent 90-day plus 12-month timelines, week-on-week and year-on-year metrics.
-- Added transparent 70% editorial / 30% Google priority and simple Act/Test/
-  Watch rules.
-- Replaced Trend Radar with Editorial Radar and simplified Data & Setup to the
-  four active steps. X and Instagram calls and controls are retired.
-- Preserved catalogue matching, Campaign Studio, Wednesday Blog, Supabase,
-  safe diagnostics and the scheduled Wednesday refresh.
-- Added publisher-consensus, article-extraction, cache-plan and Streamlit UI
-  regression coverage.
-
-## Build 2026.08.06.3 — Live Discovery Promotion Repair
-
-- Reordered the pipeline so approved publishers are collected before X and
-  their newest named trends become targeted validation searches.
-- Replaced hard-coded X microtrend examples with open-ended topic queries; a
-  bounded live publisher family uses the same governed run count.
-- Prioritised fresh publisher discoveries separately from public confidence,
-  then aligned Google and Instagram enrichment to that live-first queue.
-- Added a candidate fingerprint to Google cache schema 4.0. A fresh cache is
-  reused only when the current shortlist matches, preventing yesterday's 24
-  terms from silently overriding today's publisher discoveries.
-- Applied conservative semantic alias groups to publisher evidence before
-  counting independent sources.
-- Added `live_publisher`, `live_social`, `live_search_discovery`,
-  `configured_seed`, `historical` and `demo` provenance to every trend.
-- Added the Fresh Discovery Queue and the exact validation plan to the UI.
-- Demoted any saved pre-repair live/hybrid snapshot to a stale watchlist until
-  one complete pipeline-3.0 refresh succeeds.
-- Changed unused optional model connectors from `PARTIAL` to `STANDBY`, and no
-  longer treats normally rejected out-of-window X rows as a connector failure.
-- Added regression coverage for candidate changes, cache invalidation, dynamic
-  X searches, publisher alias consolidation, provenance and seed isolation;
-  all 102 offline tests pass.
+- Consolidated twenty small Marketing Operations sidebar items into five
+  business workspaces: Home, Campaigns, Content & SEO, Performance and Settings.
+- Added campaign-specific channel checklists that create owned, due-dated tasks
+  only for the channels selected in a campaign.
+- Rebuilt the visual system with a readable, colourful navigation, campaign
+  workroom, larger KPI cards and a consistent HULA operating loop.
+- Removed the unsupported 98,280-session / 347-checkout combined funnel. The
+  supplied analytics event rows and Shopify Online Store summary now remain
+  separate source views.
+- Reclassified HK$182.03 as paid spend per all new customer, not paid CAC.
+- Added channel-chart coverage, attribution windows, report-quality findings
+  and a business-readable metric dictionary to the app and exports.
+- Preserved the independent Trend Intelligence entry point and kept every live
+  external write disabled.
 
 ## Build 2026.08.06.2 — Evidence-First Methodology 2.0
 
@@ -244,3 +217,22 @@
 - Preserved the Shopify CSV/API catalogue choice, OpenRouter campaigns, safe
   diagnostics and existing CSV upload fix.
 - Added regression coverage; 32 offline tests pass.
+# 2026.08.06-marketing.1
+
+- Added the independent `apps/marketing_operations.py` Streamlit application;
+  retained root `app.py` for Trend Intelligence.
+- Added twenty Marketing Operations views spanning command centre, executive,
+  commerce/customers, campaigns, trends, SEO, content, paid media, lifecycle,
+  local, product feed, AI referrals, experiments, workflows, exports and health.
+- Added explicit July 2026 agency-report parity fixtures, including visible
+  revenue/order reconciliation defects rather than hiding them.
+- Added deterministic signals, local demo workflows for tasks, approvals,
+  campaigns, content, experiments, jobs and audit history.
+- Added role/permission enforcement and Supabase Auth production adapter.
+- Added repeatable Postgres/Supabase migration with RLS and write flags off.
+- Added read-only Shopify orders/refunds, GA4 and Search Console connector
+  implementations plus honest provider health shells.
+- Added structured monthly PDF and CSV/ZIP report exports.
+- Added architecture, metric, attribution, security, deployment, operating and
+  provider setup documentation.
+- Centralized exception/token redaction for both applications.

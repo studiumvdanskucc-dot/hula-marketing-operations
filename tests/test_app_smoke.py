@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import ast
-import json
 from pathlib import Path
 
 import pytest
@@ -15,7 +14,7 @@ APP_PATH = Path(__file__).resolve().parents[1] / "app.py"
     "page",
     [
         "THIS WEEK",
-        "EDITORIAL RADAR",
+        "TREND RADAR",
         "PRODUCT MATCH",
         "CAMPAIGN STUDIO",
         "WEDNESDAY BLOG",
@@ -80,46 +79,9 @@ def test_catalogue_widget_state_is_never_assigned_directly() -> None:
     assert forbidden_assignments == []
 
 
-def test_editorial_consensus_build_is_visible_in_sidebar() -> None:
+def test_repaired_build_is_visible_in_sidebar() -> None:
     app = AppTest.from_file(APP_PATH, default_timeout=30).run()
-    assert any("Build 2026.08.06.4" in caption.value for caption in app.sidebar.caption)
-
-
-def test_pre_repair_snapshot_is_marked_stale_until_full_refresh(
-    tmp_path, monkeypatch
-) -> None:
-    snapshot_path = tmp_path / "pre-repair.json"
-    snapshot_path.write_text(
-        json.dumps(
-            {
-                "meta": {
-                    "generated_at": "2026-08-05T00:00:00+00:00",
-                    "mode": "live",
-                    "discovery_pipeline_version": "3.0",
-                },
-                "trends": [
-                    {
-                        "id": "legacy-trend",
-                        "name": "Legacy Trend",
-                        "decision_ready": True,
-                    }
-                ],
-                "products": [],
-                "recommendations": [],
-            }
-        ),
-        encoding="utf-8",
-    )
-    monkeypatch.setenv("SNAPSHOT_PATH", str(snapshot_path))
-    app = AppTest.from_file(APP_PATH, default_timeout=30).run()
-
-    assert not app.exception
-    assert any("DATASET · STALE" in caption.value for caption in app.sidebar.caption)
-    assert app.session_state["snapshot"]["meta"]["discovery_refresh_required"] is True
-    assert all(
-        trend.get("decision_ready") is False
-        for trend in app.session_state["snapshot"]["trends"]
-    )
+    assert any("Build 2026.08.06.2" in caption.value for caption in app.sidebar.caption)
 
 
 def test_data_setup_shows_safe_diagnostics() -> None:
@@ -130,12 +92,9 @@ def test_data_setup_shows_safe_diagnostics() -> None:
         button.label == "Download safe diagnostic report" for button in app.get("download_button")
     )
     labels = {button.label for button in app.button}
+    assert "Check active HULA runs" in labels
+    assert "Stop active HULA runs" in labels
     assert "Test publisher pages" in labels
-    assert "Test OpenAI article extraction" in labels
-    assert "Test Google Trends" in labels
-    assert "Check active HULA runs" not in labels
-    assert "Stop active HULA runs" not in labels
-    assert "Test hashtag Actor" not in labels
-    assert "Test Apify task" not in labels
+    assert "Test hashtag Actor" in labels
     assert "Test Supabase history" in labels
     assert "Test Gemini fallback" in labels

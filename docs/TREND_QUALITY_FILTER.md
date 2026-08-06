@@ -14,10 +14,9 @@ Examples kept: `jeans`, `loafers`, `sandals`, `designer bags`, `black bags`,
 `red trousers`, `mini dress`, `mini bags`, `raffia bags`, `east–west bags`,
 `puff sleeves`, `butter yellow`, `polka dots`, `Mary Janes`.
 
-The rule runs at publisher title/heading extraction, GPT article extraction,
-semantic alias clustering, Google-series scoring and stored-snapshot loading.
-This prevents an older snapshot from showing a generic term before the next
-live refresh.
+The rule runs at X phrase extraction, semantic clustering, Google candidate
+selection, Google-series scoring and stored-snapshot loading. This prevents an
+older snapshot from showing a generic term before the next live refresh.
 
 **Data & Setup → Trend quality filter** displays both the complete permanent
 single-term blocklist and the exact de-duplicated audit from the latest refresh,

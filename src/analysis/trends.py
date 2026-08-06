@@ -218,11 +218,11 @@ TRUSTED_STANDALONE_ALLOWLIST = {
 }
 
 GENERIC_FASHION_FILLERS = {
-    "a", "all", "an", "and", "any", "best", "designer", "designers", "fashion", "fashionable",
+    "a", "all", "an", "best", "designer", "designers", "fashion", "fashionable",
     "female", "for", "idea", "ideas", "latest", "look", "looks", "luxury",
-    "male", "men", "mens", "must", "new", "of", "or", "s", "season", "style",
+    "male", "men", "mens", "must", "new", "of", "s", "season", "style",
     "styles", "the", "trend", "trends", "trending", "wear", "woman", "women",
-    "womens", "with",
+    "womens",
 }
 
 # These words make a headline sound editorial but do not make a category more
@@ -334,8 +334,6 @@ def generic_trend_reason(value: str, *, trusted_source: bool = False) -> str:
         return "Standalone category or vague style label"
     if phrase in SPECIFIC_PHRASE_ALLOWLIST:
         return ""
-    if tokens & {"http", "https", "www", "com"}:
-        return "URL or scraper residue in trend label"
     if not (
         tokens & FASHION_PRODUCT_TOKENS
         or tokens & FASHION_STYLE_TOKENS
@@ -1235,46 +1233,19 @@ def score_google_windows(
 
     context_rows = score_google_series(context_series, audit=audit)
     recent_rows = score_google_series(recent_series, audit=audit)
-    context_by_id = {str(row.get("id")): row for row in context_rows}
     recent_by_id = {str(row.get("id")): row for row in recent_rows}
-    ordered_ids = [str(row.get("id")) for row in context_rows]
-    ordered_ids.extend(
-        trend_id for trend_id in recent_by_id if trend_id not in context_by_id
-    )
     output: list[dict[str, Any]] = []
-    for trend_id in ordered_ids:
-        context = context_by_id.get(trend_id)
-        recent = recent_by_id.get(trend_id)
-        updated = dict(context or recent or {})
-        if context and recent:
-            updated["google_context_score"] = float(context.get("google_score") or 0)
+    for row in context_rows:
+        updated = dict(row)
+        recent = recent_by_id.get(str(row.get("id")))
+        if recent:
+            updated["google_context_score"] = float(row.get("google_score") or 0)
             updated["google_recent_score"] = float(recent.get("google_score") or 0)
             updated["google_score"] = round(
-                0.60 * float(context.get("google_score") or 0)
+                0.60 * float(row.get("google_score") or 0)
                 + 0.40 * float(recent.get("google_score") or 0),
                 1,
             )
-        elif recent:
-            # Preserve a usable recent plot when the annual context request
-            # fails independently. The UI labels the 12-month view missing.
-            updated["google_context_score"] = None
-            updated["google_recent_score"] = float(recent.get("google_score") or 0)
-            updated["google_score"] = float(recent.get("google_score") or 0)
-            updated["series"] = []
-            updated["display_series"] = []
-            updated["series_quality"] = {}
-            updated["series_issue"] = "12-month Google context unavailable"
-            updated["chart_ready"] = False
-        else:
-            updated["google_context_score"] = float((context or {}).get("google_score") or 0)
-            updated["google_recent_score"] = None
-            updated["search_momentum_7d"] = None
-            updated["recent_series"] = []
-            updated["recent_display_series"] = []
-            updated["recent_series_quality"] = {}
-            updated["recent_chart_ready"] = False
-
-        if recent:
             updated["search_momentum_7d"] = float(
                 recent.get("search_momentum") or 0
             )
@@ -1285,7 +1256,13 @@ def score_google_windows(
             updated["recent_series_quality"] = dict(
                 recent.get("series_quality") or {}
             )
-            updated["recent_chart_ready"] = bool(recent.get("chart_ready"))
+        else:
+            updated["google_context_score"] = float(row.get("google_score") or 0)
+            updated["google_recent_score"] = None
+            updated["search_momentum_7d"] = None
+            updated["recent_series"] = []
+            updated["recent_display_series"] = []
+            updated["recent_series_quality"] = {}
         output.append(updated)
     return sorted(
         output,
@@ -1541,18 +1518,6 @@ def merge_trend_signals(
             "publisher_names": list(commercial.get("publisher_names") or []),
             "commercial_article_count": int(commercial.get("article_count") or 0),
             "commercial_evidence": list(commercial.get("commercial_evidence") or []),
-            "validation_priority_score": float(
-                commercial.get("validation_priority_score") or 0
-            ),
-            "publisher_freshness_score": float(
-                commercial.get("publisher_freshness_score") or 0
-            ),
-            "current_article_count": int(
-                commercial.get("current_article_count") or 0
-            ),
-            "newest_published_at": str(
-                commercial.get("newest_published_at") or ""
-            ),
             "instagram_hashtag": str(instagram.get("hashtag") or ""),
             "instagram_posts_count": int(instagram.get("posts_count") or 0),
             "instagram_posts_per_day": float(instagram.get("posts_per_day") or 0),
@@ -1591,17 +1556,4 @@ def merge_trend_signals(
         row["why_now"] = _why_now(row)
         row["content_angles"] = _content_angles(str(name), row["category"])
         merged.append(row)
-    # Retain newly published candidates for the validation queue even before
-    # they accumulate enough independent evidence for a public confidence
-    # score. Public ordering is recalculated by evidence_scoring.py.
-    return sorted(
-        merged,
-        key=lambda row: (
-            max(
-                float(row.get("score") or 0),
-                float(row.get("validation_priority_score") or 0),
-            ),
-            float(row.get("score") or 0),
-        ),
-        reverse=True,
-    )[:limit]
+    return sorted(merged, key=lambda row: row["score"], reverse=True)[:limit]

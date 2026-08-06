@@ -70,21 +70,3 @@ def test_deduplication_preserves_open_and_expert_provenance() -> None:
     assert unique[0]["listening_groups"] == ["expert-1", "silhouette"]
     assert unique[0]["expert_tiers"] == ["commercial-priority"]
     assert unique[0]["expert_weight"] == 3.0
-
-
-def test_live_publisher_terms_add_targeted_current_and_previous_searches() -> None:
-    plan = build_listening_plan(
-        now=datetime(2026, 8, 6, tzinfo=timezone.utc),
-        expert_accounts=[],
-        priority_accounts=[],
-        validation_terms=["Layered Tops", "Kitten-Heel Flip-Flops"],
-    )
-    targeted = [row for row in plan if row.get("is_dynamic_validation")]
-
-    assert len(targeted) == 2
-    assert {row["window"] for row in targeted} == {"current", "previous"}
-    assert all('"Layered Tops"' in row["input"]["query"] for row in targeted)
-    assert all(
-        '"Kitten-Heel Flip-Flops"' in row["input"]["query"]
-        for row in targeted
-    )

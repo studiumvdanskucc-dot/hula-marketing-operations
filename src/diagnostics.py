@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Iterable
 
+from src.marketing_ops.security import safe_exception
+
 
 SOURCE_NAMES = {
     "google_trends": "Google Trends",
@@ -19,12 +21,7 @@ SOURCE_NAMES = {
 
 def safe_error(exc: BaseException, secrets: Iterable[str] = ()) -> str:
     """Return a useful, bounded error message without echoing configured secrets."""
-    message = str(exc).strip() or "No additional detail was returned."
-    for secret in secrets:
-        value = str(secret or "")
-        if value:
-            message = message.replace(value, "[redacted]")
-    return f"{type(exc).__name__}: {message}"[:900]
+    return safe_exception(exc, secrets)[:900]
 
 
 def hybrid_explanation(meta: dict[str, Any]) -> str:
@@ -43,11 +40,6 @@ def hybrid_explanation(meta: dict[str, Any]) -> str:
     ).lower():
         expected.append("the catalogue is an uploaded CSV snapshot")
 
-    if meta.get("discovery_refresh_required"):
-        attention.append(
-            "the saved trend ranking predates the live-discovery repair and requires one full refresh"
-        )
-
     for key in (
         "google_trends",
         "x_apify",
@@ -61,8 +53,6 @@ def hybrid_explanation(meta: dict[str, Any]) -> str:
         value = str(statuses.get(key, "")).strip()
         lowered = value.lower()
         if not value:
-            continue
-        if "standby" in lowered:
             continue
         if "failed" in lowered:
             attention.append(f"{SOURCE_NAMES[key]} failed on the last refresh")
@@ -115,8 +105,6 @@ def _action_for(
         )
     if "live" in lowered or lowered.startswith("api live"):
         return "Working on the last completed refresh."
-    if "standby" in lowered:
-        return "Available but not required because the selected primary connector handled this refresh."
     if "stale" in lowered:
         return "Shown only as historical context; stale evidence cannot make a trend decision-ready."
     if "partial" in lowered:

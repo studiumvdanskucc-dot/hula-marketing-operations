@@ -141,9 +141,6 @@ class Settings:
     commercial_sources_enabled: bool = True
     commercial_timeout_seconds: int = 25
     commercial_max_workers: int = 4
-    editorial_lookback_days: int = 21
-    editorial_max_articles: int = 48
-    editorial_ai_batch_size: int = 5
     openrouter_api_key: str = ""
     openrouter_api_url: str = "https://openrouter.ai/api/v1/chat/completions"
     openrouter_model: str = "qwen/qwen3-vl-32b-instruct"
@@ -157,16 +154,16 @@ class Settings:
     openai_sol_model: str = "gpt-5.6-sol"
     openai_timeout_seconds: int = 180
     google_geo: str = "WORLDWIDE"
-    google_timeframe: str = "today 12-m"
-    google_discovery_timeframe: str = "today 3-m"
+    google_timeframe: str = "today 3-m"
+    google_discovery_timeframe: str = "now 7-d"
     google_category: int = 0
     google_anchor_term: str = "designer fashion"
-    enable_google_related_queries: bool = False
+    enable_google_related_queries: bool = True
     google_provider: str = "auto"
     serpapi_api_key: str = ""
     serpapi_endpoint: str = "https://serpapi.com/search.json"
     serpapi_timeout_seconds: int = 75
-    google_max_terms: int = 20
+    google_max_terms: int = 24
     google_max_discovery_seeds: int = 2
     google_related_validation_terms: int = 4
     google_cache_hours: int = 24
@@ -292,15 +289,6 @@ def load_settings() -> Settings:
         commercial_max_workers=as_int(
             setting("COMMERCIAL_MAX_WORKERS", 4), 4
         ),
-        editorial_lookback_days=as_int(
-            setting("EDITORIAL_LOOKBACK_DAYS", 21), 21
-        ),
-        editorial_max_articles=as_int(
-            setting("EDITORIAL_MAX_ARTICLES", 48), 48
-        ),
-        editorial_ai_batch_size=as_int(
-            setting("EDITORIAL_AI_BATCH_SIZE", 5), 5
-        ),
         openrouter_api_key=str(setting("OPENROUTER_API_KEY", "")),
         openrouter_api_url=str(
             setting(
@@ -327,20 +315,16 @@ def load_settings() -> Settings:
             setting("OPENAI_TIMEOUT_SECONDS", 180), 180
         ),
         google_geo=str(setting("GOOGLE_TRENDS_GEO", "WORLDWIDE")),
-        # Dedicated v4 keys deliberately ignore the previous build's
-        # 3-month / 7-day pair that may still exist in hosted secrets.
-        google_timeframe=str(
-            setting("GOOGLE_TRENDS_CONTEXT_TIMEFRAME", "today 12-m")
-        ),
+        google_timeframe=str(setting("GOOGLE_TRENDS_TIMEFRAME", "today 3-m")),
         google_discovery_timeframe=str(
-            setting("GOOGLE_TRENDS_RECENT_TIMEFRAME", "today 3-m")
+            setting("GOOGLE_TRENDS_DISCOVERY_TIMEFRAME", "now 7-d")
         ),
         google_category=as_int(setting("GOOGLE_TRENDS_CATEGORY", 0), 0),
         google_anchor_term=str(
             setting("GOOGLE_TRENDS_ANCHOR_TERM", "designer fashion")
         ),
         enable_google_related_queries=as_bool(
-            setting("GOOGLE_TRENDS_RELATED_QUERIES", False), False
+            setting("GOOGLE_TRENDS_RELATED_QUERIES", True), True
         ),
         google_provider=str(setting("GOOGLE_TRENDS_PROVIDER", "auto")),
         serpapi_api_key=str(setting("SERPAPI_API_KEY", "")),
@@ -350,7 +334,7 @@ def load_settings() -> Settings:
         serpapi_timeout_seconds=as_int(
             setting("SERPAPI_TIMEOUT_SECONDS", 75), 75
         ),
-        google_max_terms=as_int(setting("GOOGLE_TRENDS_MAX_TERMS", 20), 20),
+        google_max_terms=as_int(setting("GOOGLE_TRENDS_MAX_TERMS", 24), 24),
         google_max_discovery_seeds=as_int(
             setting("GOOGLE_TRENDS_MAX_DISCOVERY_SEEDS", 2), 2
         ),

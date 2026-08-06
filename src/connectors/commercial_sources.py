@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import html as html_lib
-import hashlib
 import math
 import re
 import xml.etree.ElementTree as ET
@@ -10,7 +9,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from html.parser import HTMLParser
-from threading import Lock
 from typing import Any, Iterable
 from urllib.parse import urljoin, urlparse
 
@@ -187,108 +185,6 @@ COMMERCIAL_SOURCES: tuple[CommercialSource, ...] = (
         max_age_days=550,
         kind="lyst",
         search_query="site:lyst.com/the-lyst-index hottest products",
-    ),
-)
-
-
-# Build 2026.08.06.4 deliberately narrows live discovery to consumer-facing
-# editorial publishers. Each regional or sister edition can still be collected,
-# but ``publisher_group`` is the identity used for independent-source overlap.
-# The 21-day window is the product requirement: these pages discover ideas;
-# Google Trends measures whether search behaviour is moving with them.
-EDITORIAL_PUBLISHERS: tuple[CommercialSource, ...] = (
-    CommercialSource(
-        "whowhatwear",
-        "Who What Wear",
-        ("https://www.whowhatwear.com/fashion/trends",),
-        1.0,
-        max_articles=12,
-        max_age_days=21,
-        sitemap_urls=("https://www.whowhatwear.com/sitemap-news.xml",),
-        article_urls=(
-            "https://www.whowhatwear.com/fashion/trends/ransitional-trends-for-fall-2026",
-        ),
-        search_query=(
-            "site:whowhatwear.com/fashion/trends OR site:whowhatwear.com/fashion/"
-            " fashion trend"
-        ),
-        publisher_group="whowhatwear",
-    ),
-    CommercialSource(
-        "vogue",
-        "Vogue",
-        ("https://www.vogue.com/fashion/trends",),
-        1.0,
-        max_articles=10,
-        max_age_days=21,
-        sitemap_urls=("https://www.vogue.com/sitemap.xml",),
-        article_urls=(
-            "https://www.vogue.com/article/fall-winter-2026-fashion-trends",
-        ),
-        search_query="site:vogue.com/article fashion trend",
-        publisher_group="vogue",
-    ),
-    CommercialSource(
-        "elle",
-        "ELLE",
-        ("https://www.elle.com/fashion/trend-reports/",),
-        1.0,
-        max_articles=10,
-        max_age_days=21,
-        article_urls=(
-            "https://www.elle.com/fashion/trend-reports/a73229879/pre-fall-fashion-trends/",
-        ),
-        search_query="site:elle.com/fashion/trend-reports fashion trend",
-        publisher_group="elle",
-    ),
-    CommercialSource(
-        "harpers-bazaar",
-        "Harper's Bazaar",
-        ("https://www.harpersbazaar.com/fashion/trends/",),
-        1.0,
-        max_articles=10,
-        max_age_days=21,
-        search_query="site:harpersbazaar.com/fashion/trends fashion trend",
-        publisher_group="harpers-bazaar",
-    ),
-    CommercialSource(
-        "marie-claire",
-        "Marie Claire",
-        (
-            "https://www.marieclaire.com/fashion/fall-fashion/",
-            "https://www.marieclaire.com/fashion/",
-        ),
-        1.0,
-        max_articles=10,
-        max_age_days=21,
-        article_urls=(
-            "https://www.marieclaire.com/fashion/drop-waist-trend-fall-2026/",
-        ),
-        search_query="site:marieclaire.com/fashion fashion trend",
-        publisher_group="marie-claire",
-    ),
-    CommercialSource(
-        "glamour",
-        "Glamour",
-        ("https://www.glamour.com/fashion",),
-        1.0,
-        max_articles=10,
-        max_age_days=21,
-        article_urls=(
-            "https://www.glamour.com/story/dakota-johnson-granny-tote-fall-bag-trend",
-        ),
-        search_query="site:glamour.com/story fashion trend",
-        publisher_group="glamour",
-    ),
-    CommercialSource(
-        "instyle",
-        "InStyle",
-        ("https://www.instyle.com/fashion-5341673",),
-        1.0,
-        max_articles=10,
-        max_age_days=21,
-        search_query="site:instyle.com fashion trend",
-        publisher_group="instyle",
     ),
 )
 
@@ -1113,8 +1009,6 @@ class CommercialSourceCollector:
         self._provided_session = session
         self.serpapi_api_key = str(serpapi_api_key or "").strip()
         self.serpapi_endpoint = str(serpapi_endpoint or "").strip()
-        self._article_documents: list[dict[str, Any]] = []
-        self._article_lock = Lock()
 
     def _source_session(self) -> requests.Session:
         return self._provided_session or _session()
@@ -1190,80 +1084,6 @@ class CommercialSourceCollector:
             for label in labels
         ]
 
-    def _record_article_document(
-        self,
-        source: CommercialSource,
-        page: _PageParser,
-        *,
-        title: str,
-        url: str,
-        published_at: str,
-        collected_at: str,
-        acquisition: str,
-        labels: Iterable[dict[str, str]],
-    ) -> None:
-        """Keep bounded article text in memory for GPT extraction.
-
-        Full article text is never written to the weekly snapshot. The refresh
-        passes this short-lived representation to the extraction model and then
-        persists only article metadata, short evidence excerpts and source URLs.
-        """
-
-        paragraphs: list[str] = []
-        seen: set[str] = set()
-        character_count = 0
-        for raw in page.paragraphs[:120]:
-            paragraph = _clean_text(raw)
-            fingerprint = paragraph.casefold()
-            if len(paragraph) < 30 or fingerprint in seen:
-                continue
-            if any(
-                cue in fingerprint
-                for cue in (
-                    "when you purchase through links",
-                    "sign up for our newsletter",
-                    "all products featured",
-                    "latest videos from",
-                )
-            ):
-                continue
-            remaining = 12_000 - character_count
-            if remaining <= 0:
-                break
-            paragraph = paragraph[:remaining]
-            paragraphs.append(paragraph)
-            seen.add(fingerprint)
-            character_count += len(paragraph)
-
-        final_url = str(url or "")
-        article_id = (
-            f"{source.key}-"
-            + hashlib.sha256(final_url.encode("utf-8")).hexdigest()[:12]
-        )
-        document = {
-            "article_id": article_id,
-            "publisher": source.name,
-            "publisher_id": source.key,
-            "publisher_group": source.publisher_group or source.key,
-            "publisher_weight": source.weight,
-            "title": _clean_text(title),
-            "url": final_url,
-            "published_at": str(published_at or ""),
-            "collected_at": collected_at,
-            "acquisition": acquisition,
-            "headings": list(
-                dict.fromkeys(
-                    _source_headings(source, page, final_url)
-                )
-            )[:40],
-            "paragraphs": paragraphs,
-            "deterministic_labels": [
-                dict(row) for row in labels if isinstance(row, dict)
-            ],
-        }
-        with self._article_lock:
-            self._article_documents.append(document)
-
     def _article_evidence(
         self,
         session: requests.Session,
@@ -1285,14 +1105,11 @@ class CommercialSourceCollector:
             age_days = max(0.0, (now - published).total_seconds() / 86400)
             if age_days > source.max_age_days:
                 return []
-        final_published = published.isoformat() if published else ""
-        final_url = metadata["url"] or final_url
-        headings = _source_headings(source, page, final_url)
         labels = extract_explicit_trend_labels(
             title=title,
-            headings=headings,
+            headings=_source_headings(source, page, metadata["url"] or final_url),
             paragraphs=page.paragraphs,
-            url=final_url,
+            url=metadata["url"] or final_url,
             reference_year=now.year,
             quantified=source.key in {
                 "trendalytics",
@@ -1309,22 +1126,12 @@ class CommercialSourceCollector:
                 url=url,
                 reference_year=now.year,
             )
-        self._record_article_document(
-            source,
-            page,
-            title=title,
-            url=final_url,
-            published_at=final_published,
-            collected_at=collected_at,
-            acquisition=acquisition,
-            labels=labels,
-        )
         return self._publisher_evidence(
             source,
             labels,
             title=title,
-            url=final_url,
-            published_at=final_published,
+            url=metadata["url"] or final_url,
+            published_at=published.isoformat() if published else "",
             collected_at=collected_at,
             acquisition=acquisition,
         )
@@ -1720,8 +1527,6 @@ class CommercialSourceCollector:
     def collect(self, *, now: datetime | None = None) -> dict[str, Any]:
         reference = (now or datetime.now(tz=timezone.utc)).astimezone(timezone.utc)
         collected_at = reference.isoformat()
-        with self._article_lock:
-            self._article_documents = []
         evidence: list[dict[str, Any]] = []
         statuses: dict[str, dict[str, Any]] = {}
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
@@ -1758,28 +1563,8 @@ class CommercialSourceCollector:
             seen_evidence.add(identity)
             deduped_evidence.append(row)
 
-        article_documents: list[dict[str, Any]] = []
-        seen_articles: set[str] = set()
-        with self._article_lock:
-            recorded_articles = list(self._article_documents)
-        for row in recorded_articles:
-            identity = str(row.get("url") or row.get("article_id") or "")
-            if not identity or identity in seen_articles:
-                continue
-            seen_articles.add(identity)
-            article_documents.append(row)
-        article_documents.sort(
-            key=lambda row: (
-                parse_utc(row.get("published_at"))
-                or datetime.min.replace(tzinfo=timezone.utc),
-                str(row.get("publisher") or ""),
-            ),
-            reverse=True,
-        )
-
         return {
             "evidence": deduped_evidence,
-            "articles": article_documents,
             "source_status": statuses,
             "publishers_requested": len(self.sources),
             "publishers_live": sum(
