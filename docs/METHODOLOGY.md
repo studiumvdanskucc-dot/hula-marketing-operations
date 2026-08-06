@@ -49,6 +49,16 @@ the identified trend.
 
 An unknown date is deliberately weaker and never treated as current.
 
+## Validation priority is not confidence
+
+Newly published, one-source discoveries need measurement before they can earn
+confidence. The app therefore uses a separate, non-public-confidence priority
+based on publisher freshness, source strength and breadth to allocate the
+bounded Google, X and Instagram checks. It never adds points to the six
+confidence components. Every trend records whether it originated from a live
+publisher, live search discovery, live social evidence, a configured fallback
+seed, history or demo data.
+
 ## Component scores
 
 ### Editorial evidence — 25%
@@ -143,16 +153,19 @@ This score changes merchandising priority but never changes trend confidence.
 
 ## Weekly pipeline
 
-1. Collect permitted source URLs and metadata.
+1. Collect permitted publisher URLs and metadata.
 2. Retain titles, dates, selected headings and short evidence summaries.
-3. Collect Google daily series separately.
-4. Collect available aggregate social, runway and retail signals.
-5. Extract specific candidates and reject broad/non-fashion phrases.
-6. Merge true aliases without merging a whole aesthetic.
-7. Produce a short evidence-led synthesis.
-8. Calculate every number, cap and ordering in Python.
-9. Match the HULA catalogue and calculate HULA opportunity.
-10. Save the full evidence snapshot and optionally draft the blog from it.
+3. Rank current publisher discoveries for validation.
+4. Run open-ended X discovery plus one bounded publisher-validation family.
+5. Extract specific candidates, reject noise and merge conservative aliases.
+6. Count publisher breadth only after alias alignment.
+7. Build the live-first Google/Instagram validation queue; fallback seeds fill
+   only unused capacity.
+8. Reuse Google cache only when its candidate fingerprint still matches.
+9. Produce a short evidence-led synthesis.
+10. Calculate every number, cap and ordering in Python.
+11. Match the HULA catalogue and calculate HULA opportunity.
+12. Save the full evidence snapshot and optionally draft the blog from it.
 
 ## Editorial control
 

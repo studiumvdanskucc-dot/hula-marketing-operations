@@ -56,7 +56,7 @@ X_EXPERT_ACCOUNTS = "VogueRunway,VogueBusiness,BoF,WGSN,HYPEBEAST,Highsnobiety,F
 
 `APIFY_MAX_TOTAL_CHARGE_USD` is a ceiling for each individual Actor run, while
 `max_results` is the tighter practical limit for this pay-per-result Actor.
-The default weekly plan requests no more than 640 returned posts across all
+The default weekly plan requests no more than 710 returned posts across all
 searches before duplicates are removed.
 
 ## 3. What the app searches
@@ -66,12 +66,16 @@ The plan avoids relying on only hashtags or only profiles. It contains:
 | Layer | Purpose | Windows |
 | --- | --- | --- |
 | Products | Bags, shoes, dresses, jewellery and accessories | Current 7 days + previous 7 days |
-| Colours & materials | Colour, suede, raffia, lace, print and texture signals | Current + previous |
-| Shapes & silhouettes | East–west bags, capris, skirts, shoes and proportion | Current + previous |
-| Aesthetics | Boho, minimalism, archive, street style and related language | Current + previous |
-| Styling & resale | How-to-wear language, outfit ideas, vintage and resale behaviour | Current + previous |
+| Colours & materials | Open-ended colour, fabric, print and texture language | Current + previous |
+| Shapes & silhouettes | Open-ended bag, shoe, dress, skirt, trouser and denim proportions | Current + previous |
+| Aesthetics | Emerging aesthetic, runway, street-style and vintage language | Current + previous |
+| Fresh publisher validation | Up to 12 current names discovered from the approved publisher panel | Current + previous |
 | Commercial priority | Who What Wear, Who What Wear UK and Lyst at 3× evidence weight | Current + previous |
 | Supporting panel | A configurable set of fashion/editorial and resale sources at 1× | Current + previous |
+
+When the publisher panel yields no usable names, the fifth open family falls
+back to general styling/resale discovery. The dynamic family replaces that
+fallback rather than adding paid runs, so the governed run count is unchanged.
 
 Each date window is an independent Advanced Search. This prevents a single
 `Latest` result set from filling almost entirely with the newest posts and makes
@@ -93,8 +97,8 @@ week-on-week growth measurable.
 7. Reduce `APIFY_RESULTS_PER_QUERY` before increasing refresh frequency.
 
 The default configuration is intentionally small. At the Actor's advertised
-price of roughly USD 0.15 per 1,000 returned tweets, 640 results represent about
-USD 0.10 in result fees, although Apify platform usage and future pricing can
+price of roughly USD 0.15 per 1,000 returned tweets, 710 results represent about
+USD 0.11 in result fees, although Apify platform usage and future pricing can
 change. The app preserves successful searches if one query window fails and
 reports the precise failed window in **Refresh notes**.
 

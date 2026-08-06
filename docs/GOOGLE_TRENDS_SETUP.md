@@ -34,9 +34,13 @@ the current slope and a longer baseline.
 - Charts use only Google's original 0–100 values.
 - Anchor-calibrated internal values are never presented as measured interest.
 
-A compatible result under 24 hours is reused as live cache. An older last-good
-result may be displayed as stale for up to three days, but is excluded from
-scoring. A manual Google Trends CSV remains available in **Data & Setup**.
+A compatible result under 24 hours is reused as live cache only when its
+candidate fingerprint matches the current live validation queue. If a fresh
+publisher or social discovery changes that queue, the app measures the new
+terms immediately instead of serving yesterday's shortlist. An older
+candidate-matched result may be displayed as stale for up to three days, but
+is excluded from scoring. A manual Google Trends CSV remains available in
+**Data & Setup**.
 
 Use **Test Google Trends (Worldwide)** to verify provider, market, timeline
 points and request count without exposing the key.

@@ -1,6 +1,6 @@
 # HULA Trend Intelligence
 
-Current build: **2026.08.06.2** · methodology **2.0**.
+Current build: **2026.08.06.3** · methodology **2.0**.
 
 An evidence-first Streamlit workflow for detecting current fashion momentum,
 showing exactly why each trend is ranked, matching the opportunity to HULA's
@@ -15,9 +15,17 @@ weekly snapshot. Missing data stays `null`, remaining component weights are
 renormalised, and a separate evidence-coverage score prevents incomplete rows
 from looking complete.
 
+Build 2026.08.06.3 also makes live publisher discoveries the input to the
+enrichment pipeline. Fresh names are prioritised for targeted X, Google and
+Instagram validation; publisher aliases are consolidated before breadth is
+counted; and a Google cache is reusable only when its candidate fingerprint
+still matches the current live shortlist. Configured example terms are now
+fallback fill only and every trend stores its discovery origin.
+
 The dashboard contains:
 
-- **This Week** — HULA-ranked opportunities, 90-day Google context and products.
+- **This Week** — fresh publisher discoveries, HULA-ranked opportunities,
+  90-day Google context and products.
 - **Trend Radar** — confidence, coverage, momentum, component scores, caps,
   warnings, independent domains and linked evidence.
 - **Product Match** — in-stock catalogue ranking and the separate HULA
@@ -95,7 +103,11 @@ cp .env.example .env
 python -m streamlit run app.py
 ```
 
-Seeing **Build 2026.08.06.2** in the sidebar confirms the current copy.
+Seeing **Build 2026.08.06.3** in the sidebar confirms the current copy.
+The included August 6 snapshot predates the live-discovery repair and is
+intentionally labelled **STALE DATA**. Run one full refresh to create the first
+pipeline-3.0 ranking; the old Leopard Print/Mary Janes result is never treated
+as a current recommendation.
 
 ## Setup order
 

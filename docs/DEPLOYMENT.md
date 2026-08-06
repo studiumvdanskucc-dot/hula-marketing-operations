@@ -74,7 +74,7 @@ are added.
    placeholders. At minimum, add the catalogue route, SerpApi, OpenAI and
    team-password values. Apify, Supabase, OpenRouter and Gemini are optional.
 7. Select **Deploy**.
-8. Open the final URL and confirm the sidebar says **Build 2026.08.06.2**.
+8. Open the final URL and confirm the sidebar says **Build 2026.08.06.3**.
 
 The Streamlit and GitHub secrets stores are separate. The weekly Action needs
 its own copy of every secret used during an automated refresh.
@@ -102,7 +102,9 @@ weekly source of `data/latest_snapshot.json`.
 
 1. Wake/open the Streamlit app.
 2. Confirm the team password works.
-3. Confirm **Build 2026.08.06.2**.
+3. Confirm **Build 2026.08.06.3**.
+   The included pre-repair snapshot may initially say **STALE DATA**; this is
+   intentional and prevents its old ranking from being treated as current.
 4. Run **Test Google Trends (Worldwide)**; it should report SerpApi and one search.
 5. Run the publisher-page and OpenAI tests, plus any configured X, hashtag,
    Supabase, OpenRouter or Gemini fallback tests.

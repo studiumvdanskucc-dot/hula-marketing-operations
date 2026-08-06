@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from src.analysis.discovery import build_validation_plan, candidate_plan_fingerprint
 from src.config import Settings
 from src.connectors.catalog_csv import CatalogCsvError, parse_product_csv
 from src.pipeline import refresh_snapshot
@@ -133,6 +134,13 @@ def test_weekly_refresh_keeps_the_persisted_csv_catalogue(tmp_path, monkeypatch)
 
 def test_repeated_refresh_reuses_fresh_google_cache(tmp_path, monkeypatch) -> None:
     snapshot_path = tmp_path / "latest.json"
+    default_settings = Settings()
+    validation_plan = build_validation_plan(
+        [],
+        [],
+        configured_terms=default_settings.fashion_terms,
+        limit=default_settings.google_max_terms,
+    )
     dates = [
         (datetime.now(tz=timezone.utc) - timedelta(weeks=2 - index)).date().isoformat()
         for index in range(3)
@@ -145,21 +153,25 @@ def test_repeated_refresh_reuses_fresh_google_cache(tmp_path, monkeypatch) -> No
                 "catalogue_filename": "products.csv",
                 "catalogue_warnings": [],
             },
-                "google_cache": {
-                    "schema_version": "3.0",
-                    "collected_at": datetime.now(tz=timezone.utc).isoformat(),
+            "google_cache": {
+                "schema_version": "4.0",
+                "collected_at": datetime.now(tz=timezone.utc).isoformat(),
                 "market": "WORLDWIDE",
                 "context_timeframe": "today 3-m",
                 "discovery_timeframe": "now 7-d",
                 "provider": "SerpApi Google Trends",
                 "context_series": {
-                    "black bags": [
+                    "Ballet Flats": [
                         {"date": date, "value": value}
                         for date, value in zip(dates, (20, 35, 60))
                     ]
                 },
                 "recent_series": {},
                 "related": [],
+                "candidate_input_fingerprint": candidate_plan_fingerprint(
+                    validation_plan
+                ),
+                "validation_plan": validation_plan,
             },
             "products": [
                 {
@@ -186,10 +198,11 @@ def test_repeated_refresh_reuses_fresh_google_cache(tmp_path, monkeypatch) -> No
         enable_google_related_queries=False,
         google_cache_hours=24,
         serpapi_api_key="test-key",
+        commercial_sources_enabled=False,
     )
 
     refreshed = refresh_snapshot(settings, persist=False, catalog_source="auto")
 
     assert refreshed["meta"]["source_status"]["google_trends"].startswith("LIVE")
     assert refreshed["meta"]["google_trends"]["used_cache"] is True
-    assert refreshed["google_cache"]["context_series"]["black bags"]
+    assert refreshed["google_cache"]["context_series"]["Ballet Flats"]

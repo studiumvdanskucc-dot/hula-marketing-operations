@@ -24,6 +24,12 @@ Every retained row records publisher, explicit label, article/report title,
 date when exposed, public URL, evidence type and acquisition route. Repeated
 press-release copies and syndicated titles are deduplicated before scoring.
 
+Conservative local and model-assisted alias groups are applied before
+publisher breadth is counted. The app also calculates a separate validation
+priority from publication freshness, publisher strength and breadth. That
+priority decides which new names receive scarce Google/X/Instagram checks; it
+does not inflate the public confidence score.
+
 ## Collection routes
 
 The collector tries, in order:

@@ -327,6 +327,9 @@ def source_freshness_state(
         age_hours = (reference - newest).total_seconds() / 3600
         if age_hours > max(1, stale_after_hours):
             return "STALE"
-    if partial or rejected or accepted == 0:
+    # Rejected rows are expected quality control (for example a scraper
+    # returning one out-of-window post). A source is partial only when a
+    # planned collection failed/skipped or no usable current rows remained.
+    if partial or accepted == 0:
         return "PARTIAL"
     return "LIVE"

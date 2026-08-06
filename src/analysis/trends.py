@@ -218,11 +218,11 @@ TRUSTED_STANDALONE_ALLOWLIST = {
 }
 
 GENERIC_FASHION_FILLERS = {
-    "a", "all", "an", "best", "designer", "designers", "fashion", "fashionable",
+    "a", "all", "an", "and", "any", "best", "designer", "designers", "fashion", "fashionable",
     "female", "for", "idea", "ideas", "latest", "look", "looks", "luxury",
-    "male", "men", "mens", "must", "new", "of", "s", "season", "style",
+    "male", "men", "mens", "must", "new", "of", "or", "s", "season", "style",
     "styles", "the", "trend", "trends", "trending", "wear", "woman", "women",
-    "womens",
+    "womens", "with",
 }
 
 # These words make a headline sound editorial but do not make a category more
@@ -334,6 +334,8 @@ def generic_trend_reason(value: str, *, trusted_source: bool = False) -> str:
         return "Standalone category or vague style label"
     if phrase in SPECIFIC_PHRASE_ALLOWLIST:
         return ""
+    if tokens & {"http", "https", "www", "com"}:
+        return "URL or scraper residue in trend label"
     if not (
         tokens & FASHION_PRODUCT_TOKENS
         or tokens & FASHION_STYLE_TOKENS
@@ -1518,6 +1520,18 @@ def merge_trend_signals(
             "publisher_names": list(commercial.get("publisher_names") or []),
             "commercial_article_count": int(commercial.get("article_count") or 0),
             "commercial_evidence": list(commercial.get("commercial_evidence") or []),
+            "validation_priority_score": float(
+                commercial.get("validation_priority_score") or 0
+            ),
+            "publisher_freshness_score": float(
+                commercial.get("publisher_freshness_score") or 0
+            ),
+            "current_article_count": int(
+                commercial.get("current_article_count") or 0
+            ),
+            "newest_published_at": str(
+                commercial.get("newest_published_at") or ""
+            ),
             "instagram_hashtag": str(instagram.get("hashtag") or ""),
             "instagram_posts_count": int(instagram.get("posts_count") or 0),
             "instagram_posts_per_day": float(instagram.get("posts_per_day") or 0),
@@ -1556,4 +1570,17 @@ def merge_trend_signals(
         row["why_now"] = _why_now(row)
         row["content_angles"] = _content_angles(str(name), row["category"])
         merged.append(row)
-    return sorted(merged, key=lambda row: row["score"], reverse=True)[:limit]
+    # Retain newly published candidates for the validation queue even before
+    # they accumulate enough independent evidence for a public confidence
+    # score. Public ordering is recalculated by evidence_scoring.py.
+    return sorted(
+        merged,
+        key=lambda row: (
+            max(
+                float(row.get("score") or 0),
+                float(row.get("validation_priority_score") or 0),
+            ),
+            float(row.get("score") or 0),
+        ),
+        reverse=True,
+    )[:limit]

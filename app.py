@@ -66,7 +66,8 @@ PALETTE = [PINK, INK, LILAC, "#e8a846", "#6f8e84", "#d46262"]
 CATALOGUE_CSV = "Upload CSV"
 CATALOGUE_API = "Shopify API"
 CATALOGUE_SELECTOR_KEY = "catalogue_source_selector_v2"
-APP_BUILD = "2026.08.06.2"
+APP_BUILD = "2026.08.06.3"
+DISCOVERY_PIPELINE_VERSION = "3.0"
 DECISION_COLORS = {
     "Act now": PINK,
     "Test this week": "#e8a846",
@@ -127,7 +128,7 @@ def inject_styles() -> None:
         .source-name { font-size:.76rem; letter-spacing:.1em; text-transform:uppercase; }
         .source-state { font-size:1.1rem; margin:.65rem 0 .25rem; }
         .dot { width:9px; height:9px; border-radius:50%; display:inline-block; margin-right:.4rem; background:#aaa; }
-        .dot.live { background:#27a05a; } .dot.demo { background:#e8a846; } .dot.fail { background:#d64848; }
+        .dot.live { background:#27a05a; } .dot.standby { background:#9b9186; } .dot.demo { background:#e8a846; } .dot.fail { background:#d64848; }
         .method-note { border:1px solid #dedbd5; background:#f8f7f5; padding:1.2rem; color:#5f5b57; line-height:1.6; font-size:.82rem; }
         .decision-key { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.7rem; margin:.2rem 0 1rem; }
         .decision-item { border:1px solid #dedbd5; padding:.8rem .9rem; font-size:.76rem; line-height:1.45; background:#fff; }
@@ -298,6 +299,7 @@ def priority_rows(trends: list[dict], *, limit: int = 30) -> pd.DataFrame:
             {
                 "Rank": index + 1,
                 "Trend": row.get("name"),
+                "Origin": row.get("discovery_origin_label") or "Not recorded",
                 "Decision": business_decision(row).upper(),
                 "Confidence": f"{float(row.get('confidence_score') or row.get('score') or 0):.0f}/100",
                 "Coverage": f"{float(row.get('data_completeness_score') or 0):.0f}%",
@@ -350,15 +352,114 @@ def publisher_inventory_rows(snapshot: dict) -> pd.DataFrame:
                 "Trend": discovery.get("name"),
                 "Publisher sites": ", ".join(publishers) or "Not reported",
                 "Evidence pages": len(pages),
+                "Newest evidence": str(
+                    discovery.get("newest_published_at") or ""
+                )[:10]
+                or "Date not exposed",
+                "Fresh pages (14d)": int(
+                    discovery.get("current_article_count") or 0
+                ),
+                "Validation priority": f"{float(discovery.get('validation_priority_score') or 0):.0f}/100",
                 "Validation": validation,
                 "First source": pages[0] if pages else "",
-                "_score": float(discovery.get("commercial_score") or 0),
+                "_score": float(
+                    discovery.get("validation_priority_score")
+                    or discovery.get("commercial_score")
+                    or 0
+                ),
             }
         )
     rows.sort(key=lambda row: (-float(row["_score"]), str(row["Trend"])))
     for row in rows:
         row.pop("_score", None)
     return pd.DataFrame(rows)
+
+
+def fresh_discovery_rows(snapshot: dict, *, limit: int = 8) -> pd.DataFrame:
+    """Surface new publisher finds without pretending they are action-ready."""
+
+    meta = snapshot.get("meta") or {}
+    selected_ids = {
+        str(row.get("id") or "")
+        for row in meta.get("validation_plan") or []
+    }
+    trends_by_id = {
+        str(row.get("id") or ""): row for row in snapshot.get("trends") or []
+    }
+    discoveries = sorted(
+        (
+            row
+            for row in meta.get("commercial_discoveries") or []
+            if int(row.get("current_article_count") or 0) > 0
+        ),
+        key=lambda row: float(row.get("validation_priority_score") or 0),
+        reverse=True,
+    )[: max(1, int(limit))]
+    rows: list[dict[str, object]] = []
+    for discovery in discoveries:
+        trend_id = str(discovery.get("id") or "")
+        merged = trends_by_id.get(trend_id) or {}
+        evidence = list(discovery.get("commercial_evidence") or [])
+        source_url = next(
+            (str(row.get("url") or "") for row in evidence if row.get("url")),
+            "",
+        )
+        rows.append(
+            {
+                "Fresh trend": discovery.get("name"),
+                "Found by": ", ".join(discovery.get("publisher_names") or []),
+                "Newest evidence": str(
+                    discovery.get("newest_published_at") or ""
+                )[:10],
+                "Selected for validation": "Yes" if trend_id in selected_ids else "No",
+                "Confidence now": f"{float(merged.get('confidence_score') or merged.get('score') or 0):.0f}/100",
+                "Status": (
+                    business_decision(merged)
+                    if merged
+                    else "Awaiting validation"
+                ),
+                "Source": source_url,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def guard_legacy_discovery_snapshot(snapshot: dict) -> dict:
+    """Prevent pre-repair rankings from looking live before the next refresh."""
+
+    meta = dict(snapshot.get("meta") or {})
+    mode = str(meta.get("mode") or "").casefold()
+    current = str(meta.get("discovery_pipeline_version") or "")
+    if mode not in {"live", "hybrid"} or current == DISCOVERY_PIPELINE_VERSION:
+        return snapshot
+
+    guarded = dict(snapshot)
+    guarded["trends"] = [
+        {
+            **trend,
+            "decision_ready": False,
+            "confidence": "Exploratory",
+            "is_stale": True,
+            "live_discovered": False,
+            "discovery_origins": ["historical"],
+            "primary_discovery_origin": "historical",
+            "discovery_origin_label": "Historical snapshot — refresh required",
+        }
+        for trend in snapshot.get("trends") or []
+    ]
+    source_status = dict(meta.get("source_status") or {})
+    source_status["trend_pipeline"] = (
+        "STALE · snapshot predates live-discovery repair; run one full refresh"
+    )
+    meta.update(
+        {
+            "mode": "stale",
+            "discovery_refresh_required": True,
+            "source_status": source_status,
+        }
+    )
+    guarded["meta"] = meta
+    return guarded
 
 
 def mode_banner(meta: dict) -> None:
@@ -402,6 +503,9 @@ def trend_cards(trends: list[dict], count: int = 4) -> None:
     for index, trend in enumerate(trends[:count]):
         with columns[index % len(columns)]:
             sources = " + ".join(trend.get("sources", [])[:4]) or "Evidence pending"
+            origin = str(
+                trend.get("discovery_origin_label") or "Origin not recorded"
+            )
             st.markdown(
                 f"""
                 <div class="trend-card {'hot' if index == 0 else ''}">
@@ -410,6 +514,7 @@ def trend_cards(trends: list[dict], count: int = 4) -> None:
                   <div class="trend-score">{float(trend.get('confidence_score') or trend.get('score') or 0):.0f}<span> / 100 confidence</span></div>
                   <div style="margin:.7rem 0"><span class="pill pink">{float(trend.get('data_completeness_score') or 0):.0f}% evidence coverage</span></div>
                   <div class="micro">HULA opportunity · {float(trend.get('hula_opportunity_score') or 0):.0f}/100</div>
+                  <div class="micro">{html.escape(origin)}</div>
                   <div class="micro">{html.escape(sources)}</div>
                 </div>
                 """,
@@ -568,7 +673,29 @@ def this_week(snapshot: dict) -> None:
     metrics[2].metric("Promotable products", unique_products, "in-stock catalogue matches")
     metrics[3].metric("Updated", updated.strftime("%d %b · %H:%M"), "Hong Kong time")
 
-    section_header("01 · Signal board", "This week's strongest opportunities")
+    section_header(
+        "01 · Fresh discovery queue",
+        "What publishers introduced most recently",
+    )
+    fresh = fresh_discovery_rows(snapshot)
+    if fresh.empty:
+        st.info(
+            "No dated publisher discovery from the current 14-day window was stored. "
+            "Run a live refresh or inspect publisher dates in Trend Radar."
+        )
+    else:
+        st.dataframe(
+            fresh,
+            hide_index=True,
+            width="stretch",
+            column_config={"Source": st.column_config.LinkColumn("Source")},
+        )
+        st.caption(
+            "These are live discoveries selected for targeted validation. They remain "
+            "separate from the action list until the evidence gates are cleared."
+        )
+
+    section_header("02 · Signal board", "This week's strongest opportunities")
     if not ready_trends and trends:
         st.warning(
             "No trend currently clears the evidence-count, domain and recency gates. "
@@ -583,7 +710,7 @@ def this_week(snapshot: dict) -> None:
             "The complete list is in Data & Setup."
         )
 
-    section_header("02 · Momentum", "Measured Google movement from the stored timeline")
+    section_header("03 · Momentum", "Measured Google movement from the stored timeline")
     chart_or_quality_note(display_trends[:5])
     st.caption(
         "The chart shows Google's original 0–100 index with light smoothing, not "
@@ -591,7 +718,7 @@ def this_week(snapshot: dict) -> None:
         "It is relative interest, not absolute search volume."
     )
 
-    section_header("03 · Catalogue opportunity", "Products to put in front of people now")
+    section_header("04 · Catalogue opportunity", "Products to put in front of people now")
     top_recommendations = []
     seen_products: set[str] = set()
     ready_ids = {str(trend.get("id")) for trend in ready_trends}
@@ -612,7 +739,7 @@ def this_week(snapshot: dict) -> None:
             "has enough current, independent evidence."
         )
 
-    section_header("04 · Direction", "The editorial idea behind the numbers")
+    section_header("05 · Direction", "The editorial idea behind the numbers")
     left, right = st.columns([1.05, 1], gap="large")
     top = display_trends[0] if display_trends else {}
     with left:
@@ -734,6 +861,8 @@ def trend_radar(snapshot: dict) -> None:
                     [
                         {
                             "Trend": trend.get("name"),
+                            "Origin": trend.get("discovery_origin_label")
+                            or "Not recorded",
                             "Confidence": f"{float(trend.get('confidence_score') or trend.get('score') or 0):.0f}/100",
                             "Coverage": f"{float(trend.get('data_completeness_score') or 0):.0f}%",
                             "Evidence": int(trend.get("evidence_count") or 0),
@@ -760,6 +889,8 @@ def trend_radar(snapshot: dict) -> None:
             [
                 {
                     "Trend": trend.get("name"),
+                    "Origin": trend.get("discovery_origin_label")
+                    or "Not recorded",
                     "Google week on week": (
                         f"{float((trend.get('google_trends_metrics') or {}).get('week_over_week_change_percent')):+.0f}%"
                         if (trend.get("google_trends_metrics") or {}).get("week_over_week_change_percent") is not None
@@ -824,6 +955,7 @@ def trend_radar(snapshot: dict) -> None:
             <div class="score-row"><span>Independent domains</span><strong>{int(selected.get('independent_domain_count') or 0)}</strong></div>
             <div class="score-row"><span>Evidence items</span><strong>{int(selected.get('evidence_count') or 0)}</strong></div>
             <div class="score-row"><span>Confidence band</span><strong>{html.escape(str(selected.get('confidence', '')))}</strong></div>
+            <div class="score-row"><span>Discovery origin</span><strong>{html.escape(str(selected.get('discovery_origin_label') or 'Not recorded'))}</strong></div>
             """,
             unsafe_allow_html=True,
         )
@@ -1442,6 +1574,8 @@ def status_class(value: str) -> str:
     lowered = value.lower()
     if "live" in lowered:
         return "live"
+    if "standby" in lowered:
+        return "standby"
     if "failed" in lowered:
         return "fail"
     return "demo"
@@ -1790,22 +1924,82 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
         )
 
     section_header(
-        "X listening design",
-        "Open discovery first, commercial confirmation second",
+        "Live validation queue",
+        "The exact candidates sent to search and hashtag enrichment",
     )
+    validation_plan = list(meta.get("validation_plan") or [])
+    if validation_plan:
+        st.dataframe(
+            pd.DataFrame(
+                [
+                    {
+                        "Rank": row.get("rank"),
+                        "Candidate": row.get("name"),
+                        "Origin": ", ".join(row.get("origins") or []),
+                        "Priority": f"{float(row.get('priority') or 0):.0f}/100",
+                        "Fresh publisher pages": int(
+                            row.get("current_article_count") or 0
+                        ),
+                        "Fallback seed only": "Yes" if row.get("seed_only") else "No",
+                    }
+                    for row in validation_plan
+                ]
+            ),
+            hide_index=True,
+            width="stretch",
+        )
+        google_cache_match = (meta.get("google_trends") or {}).get(
+            "cache_candidate_match"
+        )
+        st.caption(
+            "A 24-hour Google cache is reused only when this live candidate set matches "
+            "the cached fingerprint. Last refresh candidate match: "
+            + ("yes." if google_cache_match else "no — a new measurement was required.")
+        )
+    else:
+        st.info("Run a live refresh to create the validation queue.")
+
+    section_header(
+        "X listening design",
+        "Open discovery plus targeted validation of fresh publisher finds",
+    )
+    last_validation_terms = list(
+        (meta.get("x_listening") or {}).get("validation_terms") or []
+    )
+    if not last_validation_terms:
+        last_validation_terms = [
+            str(row.get("name") or "")
+            for row in (meta.get("commercial_discoveries") or [])[:12]
+            if row.get("name")
+        ]
     listening_plan = build_listening_plan(
         language=settings.x_language,
         results_per_query=settings.apify_results_per_query,
         expert_results_per_query=settings.apify_expert_results_per_query,
         expert_accounts=settings.x_expert_accounts,
         priority_accounts=settings.x_priority_accounts,
+        validation_terms=last_validation_terms,
     )
     open_searches = sum(not row.get("is_expert") for row in listening_plan)
     expert_searches = sum(bool(row.get("is_expert")) for row in listening_plan)
+    dynamic_searches = sum(
+        bool(row.get("is_dynamic_validation")) for row in listening_plan
+    )
+    topic_families = len(
+        {
+            str(row.get("group") or "")
+            for row in listening_plan
+            if not row.get("is_expert")
+        }
+    )
     max_posts = sum(int((row.get("input") or {}).get("max_results") or 0) for row in listening_plan)
     design_metrics = st.columns(4)
     design_metrics[0].metric("Rolling searches", len(listening_plan), "current + previous week")
-    design_metrics[1].metric("Open topic searches", open_searches, "five balanced topic families")
+    design_metrics[1].metric(
+        "Open topic searches",
+        open_searches,
+        f"{topic_families} families · {dynamic_searches} targeted",
+    )
     monitored_accounts = len(
         {
             *settings.x_expert_accounts,
@@ -1821,8 +2015,9 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
     st.write(
         "The app runs each topic against a **current seven-day window** and a separate "
         "**previous seven-day window**. Hashtags are accepted when they occur naturally, but the "
-        "search does not depend on hashtags or profiles alone. X remains open-conversation "
-        "context; commercial authority now comes from the approved public websites and reports."
+        "search does not depend on hashtags or profiles alone. One dynamic family tests the "
+        "freshest publisher-discovered names; the other families remain open-ended. X remains "
+        "conversation context, while commercial authority comes from the approved websites."
     )
     plan_table = pd.DataFrame(
         [
@@ -1834,6 +2029,8 @@ def data_setup(snapshot: dict, settings: Settings) -> None:
                     if row.get("expert_tier") == "commercial-priority"
                     else "Supporting source context"
                     if row.get("is_expert")
+                    else "Fresh publisher validation"
+                    if row.get("is_dynamic_validation")
                     else "Open discovery"
                 ),
                 "Evidence weight": (
@@ -2561,8 +2758,12 @@ def main() -> None:
                     exc,
                     [settings.supabase_secret_key],
                 )
-        st.session_state.snapshot = upgrade_snapshot_to_v2(sanitize_snapshot_trends(selected))
-    snapshot = upgrade_snapshot_to_v2(sanitize_snapshot_trends(st.session_state.snapshot))
+        st.session_state.snapshot = guard_legacy_discovery_snapshot(
+            upgrade_snapshot_to_v2(sanitize_snapshot_trends(selected))
+        )
+    snapshot = guard_legacy_discovery_snapshot(
+        upgrade_snapshot_to_v2(sanitize_snapshot_trends(st.session_state.snapshot))
+    )
     st.session_state.snapshot = snapshot
     page = sidebar(snapshot, settings)
     boot_warning = st.session_state.pop("snapshot_boot_warning", "")

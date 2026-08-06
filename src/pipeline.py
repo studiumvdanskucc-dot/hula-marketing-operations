@@ -15,16 +15,25 @@ from src.analysis.evidence_scoring import (
     normalise_exclusion_reason,
     upgrade_trends_to_v2,
 )
+from src.analysis.discovery import (
+    annotate_discovery_provenance,
+    build_validation_plan,
+    candidate_plan_fingerprint,
+    consolidate_commercial_evidence,
+    enrich_commercial_priorities,
+    select_instagram_targets,
+)
 from src.analysis.listening import build_listening_plan, deduplicate_posts
 from src.analysis.matching import match_products
 from src.analysis.trends import (
     build_topic_clusters,
+    canonical_name,
     consolidate_filter_audit,
     discover_x_candidates,
     extract_x_signals,
-    generic_trend_reason,
     merge_trend_signals,
     score_google_windows,
+    slugify,
 )
 from src.config import Settings
 from src.connectors.apify_instagram_hashtags import (
@@ -55,7 +64,7 @@ DISCOVERY_SEEDS = [
     "vintage fashion trends",
 ]
 
-GOOGLE_CACHE_SCHEMA_VERSION = "3.0"
+GOOGLE_CACHE_SCHEMA_VERSION = "4.0"
 
 
 def _openrouter(settings: Settings) -> OpenRouterConnector:
@@ -133,6 +142,8 @@ def _status(state: str, detail: str) -> str:
 def _collect_x(
     settings: Settings,
     warnings: list[str],
+    *,
+    validation_terms: list[str] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any], str]:
     summary: dict[str, Any] = {
         "mode": settings.apify_x_listening_mode,
@@ -147,6 +158,7 @@ def _collect_x(
         "usage_usd": None,
         "expert_accounts": len(settings.x_expert_accounts),
         "priority_commercial_accounts": len(settings.x_priority_accounts),
+        "validation_terms": list(validation_terms or []),
     }
     if not settings.apify_configured:
         return [], summary, "NOT CONFIGURED"
@@ -165,6 +177,7 @@ def _collect_x(
                 expert_results_per_query=settings.apify_expert_results_per_query,
                 expert_accounts=settings.x_expert_accounts,
                 priority_accounts=settings.x_priority_accounts,
+                validation_terms=validation_terms or [],
             )
             result = connector.run_listening_plan(
                 plan,
@@ -197,7 +210,6 @@ def _collect_x(
         partial = bool(
             summary.get("failed")
             or summary.get("skipped_capacity")
-            or freshness.get("rejected")
         )
         state = source_freshness_state(
             configured=True,
@@ -210,6 +222,11 @@ def _collect_x(
         detail = (
             f"{summary.get('succeeded', 0)}/{summary.get('planned', 0)} searches"
             f" · {len(posts):,} dated posts"
+            + (
+                f" · {len(validation_terms or [])} live publisher terms tested"
+                if validation_terms
+                else ""
+            )
         )
         return posts, summary, _status(state, detail)
     except Exception as exc:
@@ -231,7 +248,7 @@ def _collect_commercial_sources(
             serpapi_endpoint=settings.serpapi_endpoint,
         ).collect()
         evidence = list(result.pop("evidence", []))
-        rows = score_commercial_evidence(evidence)
+        rows = enrich_commercial_priorities(score_commercial_evidence(evidence))
         live = int(result.get("publishers_live") or 0)
         partial = int(result.get("publishers_partial") or 0)
         failed = int(result.get("publishers_failed") or 0)
@@ -335,32 +352,6 @@ def _history_presence(
     return load_trend_presence(settings.snapshot_path, weeks=4)
 
 
-def _clean_candidate_terms(
-    terms: list[str],
-    *,
-    limit: int,
-    filtered_terms: list[dict[str, str]],
-    source: str,
-    trusted_source: bool = False,
-) -> list[str]:
-    output: list[str] = []
-    for raw in terms:
-        term = str(raw or "").strip()
-        if not term:
-            continue
-        reason = generic_trend_reason(term, trusted_source=trusted_source)
-        if reason:
-            filtered_terms.append(
-                {"term": term, "source": source, "reason": reason}
-            )
-            continue
-        if term.casefold() not in {value.casefold() for value in output}:
-            output.append(term)
-        if len(output) >= max(1, limit):
-            break
-    return output
-
-
 def _collect_google(
     settings: Settings,
     *,
@@ -377,10 +368,23 @@ def _collect_google(
     bool,
 ]:
     cache, cache_age_hours = _cache_state(existing_snapshot, settings)
+    base_validation_plan = build_validation_plan(
+        commercial_rows,
+        x_rows,
+        configured_terms=settings.fashion_terms,
+        limit=settings.google_max_terms,
+    )
+    candidate_fingerprint = candidate_plan_fingerprint(base_validation_plan)
+    cache_candidate_match = bool(
+        cache
+        and str(cache.get("candidate_input_fingerprint") or "")
+        == candidate_fingerprint
+    )
     fresh_cache = bool(
         cache
         and cache_age_hours is not None
         and cache_age_hours <= max(0, settings.google_cache_hours)
+        and cache_candidate_match
     )
     context_series: dict[str, list[dict[str, Any]]] = {}
     recent_series: dict[str, list[dict[str, Any]]] = {}
@@ -393,6 +397,7 @@ def _collect_google(
     used_cache = False
     status = "NOT CONFIGURED"
     cache_out = dict(cache)
+    validation_plan = list(base_validation_plan)
 
     if not settings.serpapi_configured:
         meta = {
@@ -406,6 +411,9 @@ def _collect_google(
             "api_requests": 0,
             "api_request_ceiling": 0,
             "attempts": [],
+            "candidate_input_fingerprint": candidate_fingerprint,
+            "cache_candidate_match": False,
+            "validation_plan": validation_plan,
         }
         return [], meta, cache_out, status, google_fresh
 
@@ -413,13 +421,16 @@ def _collect_google(
         context_series = dict(cache.get("context_series") or {})
         recent_series = dict(cache.get("recent_series") or {})
         related = list(cache.get("related") or [])
+        validation_plan = list(
+            cache.get("validation_plan") or base_validation_plan
+        )
         provider = str(cache.get("provider") or "SerpApi Google Trends")
         used_cache = True
         google_fresh = True
         status = _status(
             "LIVE",
             f"cache {float(cache_age_hours or 0):.1f}h old · "
-            f"{len(context_series)} validated terms",
+            f"{len(context_series)} candidate-matched terms",
         )
     else:
         discovery = GoogleTrendsConnector(
@@ -483,44 +494,14 @@ def _collect_google(
                 }
             )
 
-        related_terms = [
-            str(row.get("query") or "")
-            for row in related
-            if isinstance(row, dict)
-        ]
-        commercial_terms = _clean_candidate_terms(
-            [str(row.get("name") or "") for row in commercial_rows],
+        validation_plan = build_validation_plan(
+            commercial_rows,
+            x_rows,
+            related_rows=related,
+            configured_terms=settings.fashion_terms,
             limit=settings.google_max_terms,
-            filtered_terms=filtered_terms,
-            source="Commercial report validation candidate",
-            trusted_source=True,
         )
-        initial_terms = [
-            *(str(row.get("name") or "") for row in x_rows),
-            *related_terms,
-            *settings.fashion_terms,
-        ]
-        supporting_terms = _clean_candidate_terms(
-            initial_terms,
-            limit=settings.google_max_terms,
-            filtered_terms=filtered_terms,
-            source="Google validation candidate",
-        )
-        # Reserve space for both publisher discoveries and open/social signals.
-        # Previously commercial candidates could consume the entire validation
-        # budget (or vice versa), leaving most discovered trends invisible.
-        commercial_quota = max(1, round(settings.google_max_terms * 0.67))
-        supporting_quota = max(1, settings.google_max_terms - commercial_quota)
-        candidates = list(
-            dict.fromkeys(
-                [
-                    *commercial_terms[:commercial_quota],
-                    *supporting_terms[:supporting_quota],
-                    *commercial_terms[commercial_quota:],
-                    *supporting_terms[supporting_quota:],
-                ]
-            )
-        )[: settings.google_max_terms]
+        candidates = [str(row.get("name") or "") for row in validation_plan]
         try:
             context_result = context.collect(candidates, discovery_seeds=[])
             context_series = dict(context_result.get("series") or {})
@@ -595,6 +576,8 @@ def _collect_google(
                 "context_series": context_series,
                 "recent_series": recent_series,
                 "related": related,
+                "candidate_input_fingerprint": candidate_fingerprint,
+                "validation_plan": validation_plan,
             }
             cache_age_hours = 0.0
         else:
@@ -605,8 +588,23 @@ def _collect_google(
                 <= max(1, settings.google_stale_cache_days) * 24
             )
             if stale_allowed:
-                context_series = dict(cache.get("context_series") or {})
-                recent_series = dict(cache.get("recent_series") or {})
+                allowed_ids = {
+                    str(row.get("id") or "") for row in base_validation_plan
+                }
+                context_series = {
+                    term: points
+                    for term, points in dict(
+                        cache.get("context_series") or {}
+                    ).items()
+                    if slugify(canonical_name(str(term))) in allowed_ids
+                }
+                recent_series = {
+                    term: points
+                    for term, points in dict(
+                        cache.get("recent_series") or {}
+                    ).items()
+                    if slugify(canonical_name(str(term))) in allowed_ids
+                }
                 related = list(cache.get("related") or [])
                 provider = str(cache.get("provider") or "previous live source")
                 used_cache = True
@@ -646,6 +644,12 @@ def _collect_google(
         "api_requests": request_count,
         "api_request_ceiling": request_ceiling,
         "attempts": attempts,
+        "candidate_input_fingerprint": candidate_fingerprint,
+        "cache_candidate_match": cache_candidate_match,
+        "validation_plan": validation_plan,
+        "seed_terms_used": sum(
+            bool(row.get("seed_only")) for row in validation_plan
+        ),
         "chart_ready_terms": sum(bool(row.get("chart_ready")) for row in rows),
         "flat_or_invalid_terms": sum(
             not bool(row.get("chart_ready")) for row in rows
@@ -808,41 +812,61 @@ def refresh_snapshot(
     analyst = openai or openrouter
     extra_openai_usage: list[dict[str, Any]] = []
 
-    x_posts, x_collection, source_status["x_apify"] = _collect_x(
-        settings,
-        warnings,
-    )
     commercial_evidence, commercial_rows, commercial_collection, source_status[
         "commercial_websites"
     ] = _collect_commercial_sources(
         settings,
         warnings,
     )
+    live_publisher_terms = [
+        str(row.get("name") or "")
+        for row in commercial_rows[:12]
+        if row.get("name")
+    ]
+    x_posts, x_collection, source_status["x_apify"] = _collect_x(
+        settings,
+        warnings,
+        validation_terms=live_publisher_terms,
+    )
 
     all_posts, combined_duplicate_stats = deduplicate_posts(x_posts)
     all_posts, combined_freshness = validate_fresh_posts(all_posts)
 
-    candidates = discover_x_candidates(all_posts, audit=filtered_terms)
-    candidates.extend(
+    x_candidates = discover_x_candidates(all_posts, audit=filtered_terms)
+    publisher_candidates = [
         {
             "phrase": str(row.get("name") or ""),
             "name": str(row.get("name") or ""),
-            "count": max(3, 3 * int(row.get("article_count") or 1)),
+            "count": max(
+                3,
+                3 * int(row.get("article_count") or 1)
+                + round(float(row.get("validation_priority_score") or 0) / 10),
+            ),
         }
         for row in commercial_rows
         if row.get("name")
-    )
+    ]
+    # Publisher discoveries lead semantic grouping. Previously the first 70
+    # model inputs were all X phrases, so publisher aliases were never seen.
+    candidates = [*publisher_candidates, *x_candidates]
+    maximum_clusters = max(35, min(180, len(candidates)))
     semantic_clusters = build_topic_clusters(
         candidates,
+        max_clusters=maximum_clusters,
         audit=filtered_terms,
     )
     semantic_error = ""
     if analyst is not None and candidates:
         try:
-            model_clusters = analyst.cluster_topic_phrases(candidates)
+            model_candidates = [
+                *publisher_candidates[:45],
+                *x_candidates[:25],
+            ]
+            model_clusters = analyst.cluster_topic_phrases(model_candidates)
             semantic_clusters = build_topic_clusters(
                 candidates,
                 llm_clusters=model_clusters,
+                max_clusters=maximum_clusters,
                 audit=filtered_terms,
             )
         except Exception as exc:
@@ -850,6 +874,20 @@ def refresh_snapshot(
             warnings.append(
                 f"Model semantic grouping: {exc}. Local grouping was used."
             )
+
+    raw_commercial_trend_count = len(commercial_rows)
+    commercial_evidence = consolidate_commercial_evidence(
+        commercial_evidence,
+        semantic_clusters,
+    )
+    commercial_rows = enrich_commercial_priorities(
+        score_commercial_evidence(commercial_evidence)
+    )
+    commercial_collection["canonical_trends"] = len(commercial_rows)
+    commercial_collection["aliases_merged"] = max(
+        0,
+        raw_commercial_trend_count - len(commercial_rows),
+    )
 
     social_rows = extract_x_signals(
         all_posts,
@@ -867,12 +905,13 @@ def refresh_snapshot(
         warnings=warnings,
         filtered_terms=filtered_terms,
     )
-    qualified_for_instagram = list(
-        {
-            str(row.get("id") or row.get("name")): row
-            for row in [*google_rows, *commercial_rows, *social_rows]
-            if row.get("name")
-        }.values()
+    validation_plan = list(google_meta.get("validation_plan") or [])
+    qualified_for_instagram = select_instagram_targets(
+        validation_plan,
+        google_rows=google_rows,
+        commercial_rows=commercial_rows,
+        social_rows=social_rows,
+        limit=settings.instagram_hashtag_max_terms,
     )
     instagram_rows, instagram_collection, source_status[
         "instagram_hashtags"
@@ -933,16 +972,19 @@ def refresh_snapshot(
         source_status["openai"] = (
             "NOT CONFIGURED"
             if not settings.openai_configured
-            else _status("PARTIAL", "disabled for this refresh")
+            else _status("STANDBY", "disabled for this refresh")
         )
         if not settings.openai_configured:
             source_status["openrouter"] = (
                 "NOT CONFIGURED"
                 if not settings.openrouter_configured
-                else _status("PARTIAL", "disabled for this refresh")
+                else _status("STANDBY", "disabled for this refresh")
             )
     if openai is not None:
-        source_status["openrouter"] = _status("PARTIAL", "not used · OpenAI configured")
+        source_status["openrouter"] = _status(
+            "STANDBY",
+            "not required · OpenAI used",
+        )
 
     fallback_kind = ""
     if not trends:
@@ -986,6 +1028,14 @@ def refresh_snapshot(
         isinstance(trend.get("score_breakdown"), dict) for trend in trends
     ):
         trends = upgrade_trends_to_v2(trends)
+
+    trends = annotate_discovery_provenance(
+        trends,
+        validation_plan,
+        commercial_rows=commercial_rows,
+        social_rows=social_rows,
+        fallback_kind=fallback_kind,
+    )
 
     products, actual_catalog_source, source_status[
         "shopify"
@@ -1116,6 +1166,21 @@ def refresh_snapshot(
             "commercial_collection": commercial_collection,
             "commercial_evidence": commercial_evidence,
             "commercial_discoveries": commercial_rows,
+            "validation_plan": validation_plan,
+            "provenance_summary": {
+                "live_discovered": sum(
+                    bool(trend.get("live_discovered")) for trend in trends
+                ),
+                "seed_only": sum(bool(trend.get("seed_only")) for trend in trends),
+                "historical": sum(
+                    trend.get("primary_discovery_origin") == "historical"
+                    for trend in trends
+                ),
+                "demo": sum(
+                    trend.get("primary_discovery_origin") == "demo"
+                    for trend in trends
+                ),
+            },
             "instagram_hashtag_collection": instagram_collection,
             "combined_social_freshness": {
                 **combined_freshness,
@@ -1143,6 +1208,13 @@ def refresh_snapshot(
                 "google_chart_ready_terms": int(
                     google_meta.get("chart_ready_terms") or 0
                 ),
+                "validation_candidates": len(validation_plan),
+                "configured_seed_candidates": sum(
+                    bool(row.get("seed_only")) for row in validation_plan
+                ),
+                "live_discovered_trends": sum(
+                    bool(trend.get("live_discovered")) for trend in trends
+                ),
                 "filtered_generic_terms": len(filtered_audit),
                 "shopify_products": len(products),
                 "recommendations": len(recommendations),
@@ -1153,6 +1225,7 @@ def refresh_snapshot(
                 *extra_openai_usage,
             ],
             "methodology_version": METHODOLOGY_VERSION,
+            "discovery_pipeline_version": "3.0",
             "quality_filter_version": "4.0",
             "google_display_schema_version": "2.0",
             "privacy": (

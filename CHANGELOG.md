@@ -1,5 +1,29 @@
 # Changelog
 
+## Build 2026.08.06.3 — Live Discovery Promotion Repair
+
+- Reordered the pipeline so approved publishers are collected before X and
+  their newest named trends become targeted validation searches.
+- Replaced hard-coded X microtrend examples with open-ended topic queries; a
+  bounded live publisher family uses the same governed run count.
+- Prioritised fresh publisher discoveries separately from public confidence,
+  then aligned Google and Instagram enrichment to that live-first queue.
+- Added a candidate fingerprint to Google cache schema 4.0. A fresh cache is
+  reused only when the current shortlist matches, preventing yesterday's 24
+  terms from silently overriding today's publisher discoveries.
+- Applied conservative semantic alias groups to publisher evidence before
+  counting independent sources.
+- Added `live_publisher`, `live_social`, `live_search_discovery`,
+  `configured_seed`, `historical` and `demo` provenance to every trend.
+- Added the Fresh Discovery Queue and the exact validation plan to the UI.
+- Demoted any saved pre-repair live/hybrid snapshot to a stale watchlist until
+  one complete pipeline-3.0 refresh succeeds.
+- Changed unused optional model connectors from `PARTIAL` to `STANDBY`, and no
+  longer treats normally rejected out-of-window X rows as a connector failure.
+- Added regression coverage for candidate changes, cache invalidation, dynamic
+  X searches, publisher alias consolidation, provenance and seed isolation;
+  all 102 offline tests pass.
+
 ## Build 2026.08.06.2 — Evidence-First Methodology 2.0
 
 - Replaced the legacy Google/X/commercial/Instagram score with deterministic

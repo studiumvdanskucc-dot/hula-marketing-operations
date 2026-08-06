@@ -81,7 +81,19 @@ def test_catalogue_widget_state_is_never_assigned_directly() -> None:
 
 def test_repaired_build_is_visible_in_sidebar() -> None:
     app = AppTest.from_file(APP_PATH, default_timeout=30).run()
-    assert any("Build 2026.08.06.2" in caption.value for caption in app.sidebar.caption)
+    assert any("Build 2026.08.06.3" in caption.value for caption in app.sidebar.caption)
+
+
+def test_pre_repair_snapshot_is_marked_stale_until_full_refresh() -> None:
+    app = AppTest.from_file(APP_PATH, default_timeout=30).run()
+
+    assert not app.exception
+    assert any("DATASET · STALE" in caption.value for caption in app.sidebar.caption)
+    assert app.session_state["snapshot"]["meta"]["discovery_refresh_required"] is True
+    assert all(
+        trend.get("decision_ready") is False
+        for trend in app.session_state["snapshot"]["trends"]
+    )
 
 
 def test_data_setup_shows_safe_diagnostics() -> None:

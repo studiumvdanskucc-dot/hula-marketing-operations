@@ -1,6 +1,6 @@
 # Start HULA Trend Intelligence
 
-Build **2026.08.06.2** uses evidence methodology **2.0**.
+Build **2026.08.06.3** uses evidence methodology **2.0**.
 
 ## First run
 
@@ -14,6 +14,10 @@ python -m streamlit run app.py
 
 Open <http://localhost:8501>, confirm the build number in the sidebar, then
 open **Data & Setup**.
+
+The bundled pre-repair snapshot is deliberately shown as **STALE DATA**. This
+is a safety guard, not a failed installation. Complete one full refresh before
+using the ranking; a successful refresh records discovery pipeline `3.0`.
 
 ## Minimum useful configuration
 
@@ -43,6 +47,9 @@ Run these from **Data & Setup**:
 Review the first result in **Trend Radar**. Confirm that every actionable trend
 has linked evidence, a visible evidence-coverage percentage, current dates and
 no unexplained cap. Missing Google must appear as insufficient data—not zero.
+Also inspect **Data & Setup → Live validation queue**: current publisher finds
+must appear before any `configured_seed` fallback, and the candidate cache
+match must explain whether Google was reused or refreshed.
 
 For hosting and scheduled refresh instructions, use
 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).

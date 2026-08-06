@@ -1,4 +1,4 @@
-# HULA Trend Intelligence — build 2026.08.06.2
+# HULA Trend Intelligence — build 2026.08.06.3
 
 ## Delivered architecture
 
@@ -13,12 +13,18 @@
   metrics, domains, evidence rows, warnings and HULA opportunity.
 - Expanded publisher panel including Harper's Bazaar, InStyle, Refinery29 and
   Teen Vogue.
+- Live-first enrichment plan: fresh publisher names drive targeted X, Google
+  and Instagram checks while configured terms are fallback fill only.
+- Candidate-aware Google cache, conservative publisher-alias consolidation and
+  visible per-trend discovery provenance.
+- Separate fresh-discovery queue so a new one-source signal is visible without
+  being misrepresented as action-ready.
 - Optional OpenAI Responses connector using Luna, Terra and Sol with strict
   JSON schemas and per-call usage/cost records.
 - Evidence-locked blog generation: no live-search claims and no invented
   sources or measurements.
-- Runtime and on-disk migration of the included legacy snapshot to methodology
-  2.0.
+- A runtime guard that demotes the included pre-repair snapshot to historical
+  context until a complete discovery-pipeline-3.0 refresh succeeds.
 - Updated Streamlit views, examples, secrets template, weekly workflow,
   documentation and regression tests.
 
