@@ -15,6 +15,14 @@ from src.analysis.evidence_scoring import (
     normalise_exclusion_reason,
     upgrade_trends_to_v2,
 )
+from src.analysis.editorial_consensus import (
+    apply_editorial_decision_rules,
+    build_editorial_evidence,
+    build_editorial_validation_plan,
+    editorial_plan_fingerprint,
+    merge_editorial_google_signals,
+    score_editorial_consensus,
+)
 from src.analysis.discovery import (
     annotate_discovery_provenance,
     build_validation_plan,
@@ -41,6 +49,7 @@ from src.connectors.apify_instagram_hashtags import (
 )
 from src.connectors.apify_x import ApifyXConnector
 from src.connectors.commercial_sources import (
+    EDITORIAL_PUBLISHERS,
     CommercialSourceCollector,
     score_commercial_evidence,
 )
@@ -64,7 +73,7 @@ DISCOVERY_SEEDS = [
     "vintage fashion trends",
 ]
 
-GOOGLE_CACHE_SCHEMA_VERSION = "4.0"
+GOOGLE_CACHE_SCHEMA_VERSION = "5.0"
 
 
 def _openrouter(settings: Settings) -> OpenRouterConnector:
@@ -658,6 +667,287 @@ def _collect_google(
     return rows, meta, cache_out, status, google_fresh
 
 
+def _collect_editorial_google(
+    settings: Settings,
+    *,
+    editorial_rows: list[dict[str, Any]],
+    existing_snapshot: dict[str, Any] | None,
+    warnings: list[str],
+    filtered_terms: list[dict[str, str]],
+) -> tuple[
+    list[dict[str, Any]],
+    dict[str, Any],
+    dict[str, Any],
+    str,
+    bool,
+]:
+    """Measure only publisher-discovered terms—no seeds or social discovery."""
+
+    validation_plan = build_editorial_validation_plan(
+        editorial_rows,
+        limit=settings.google_max_terms,
+    )
+    candidate_fingerprint = editorial_plan_fingerprint(validation_plan)
+    cache, cache_age_hours = _cache_state(existing_snapshot, settings)
+    cache_candidate_match = bool(
+        cache
+        and str(cache.get("candidate_input_fingerprint") or "")
+        == candidate_fingerprint
+    )
+    fresh_cache = bool(
+        cache_candidate_match
+        and cache_age_hours is not None
+        and cache_age_hours <= max(0, settings.google_cache_hours)
+    )
+    context_series: dict[str, list[dict[str, Any]]] = {}
+    recent_series: dict[str, list[dict[str, Any]]] = {}
+    attempts: list[dict[str, Any]] = []
+    request_count = 0
+    request_ceiling = 0
+    provider = "unavailable"
+    google_fresh = False
+    used_cache = False
+    status = "NOT CONFIGURED"
+    cache_out = dict(cache)
+
+    if not validation_plan:
+        return (
+            [],
+            {
+                "provider": provider,
+                "market": settings.google_geo,
+                "context_timeframe": settings.google_timeframe,
+                "discovery_timeframe": settings.google_discovery_timeframe,
+                "terms_returned": 0,
+                "recent_terms_returned": 0,
+                "used_cache": False,
+                "cache_age_hours": None,
+                "api_requests": 0,
+                "api_request_ceiling": 0,
+                "attempts": [],
+                "candidate_input_fingerprint": candidate_fingerprint,
+                "cache_candidate_match": False,
+                "validation_plan": [],
+                "chart_ready_terms": 0,
+            },
+            cache_out,
+            _status("PARTIAL", "no publisher terms available for measurement"),
+            False,
+        )
+
+    if not settings.serpapi_configured:
+        return (
+            [],
+            {
+                "provider": provider,
+                "market": settings.google_geo,
+                "context_timeframe": settings.google_timeframe,
+                "discovery_timeframe": settings.google_discovery_timeframe,
+                "terms_returned": 0,
+                "recent_terms_returned": 0,
+                "used_cache": False,
+                "cache_age_hours": None,
+                "api_requests": 0,
+                "api_request_ceiling": 0,
+                "attempts": [],
+                "candidate_input_fingerprint": candidate_fingerprint,
+                "cache_candidate_match": False,
+                "validation_plan": validation_plan,
+                "chart_ready_terms": 0,
+            },
+            cache_out,
+            status,
+            False,
+        )
+
+    if fresh_cache:
+        context_series = dict(cache.get("context_series") or {})
+        recent_series = dict(cache.get("recent_series") or {})
+        provider = str(cache.get("provider") or "SerpApi Google Trends")
+        used_cache = True
+        google_fresh = True
+        status = _status(
+            "LIVE",
+            f"candidate-matched cache {float(cache_age_hours or 0):.1f}h old",
+        )
+    else:
+        candidates = [str(row.get("query") or "") for row in validation_plan]
+        context = GoogleTrendsConnector(
+            geo=settings.google_geo,
+            timeframe=settings.google_timeframe,
+            category=settings.google_category,
+            anchor_term=settings.google_anchor_term,
+            provider=settings.google_provider,
+            serpapi_api_key=settings.serpapi_api_key,
+            serpapi_endpoint=settings.serpapi_endpoint,
+            serpapi_timeout_seconds=settings.serpapi_timeout_seconds,
+            max_terms=settings.google_max_terms,
+            max_discovery_seeds=0,
+            connect_timeout_seconds=settings.google_connect_timeout_seconds,
+            read_timeout_seconds=settings.google_read_timeout_seconds,
+        )
+        recent = GoogleTrendsConnector(
+            geo=settings.google_geo,
+            timeframe=settings.google_discovery_timeframe,
+            category=settings.google_category,
+            anchor_term=settings.google_anchor_term,
+            provider=settings.google_provider,
+            serpapi_api_key=settings.serpapi_api_key,
+            serpapi_endpoint=settings.serpapi_endpoint,
+            serpapi_timeout_seconds=settings.serpapi_timeout_seconds,
+            max_terms=settings.google_max_terms,
+            max_discovery_seeds=0,
+            connect_timeout_seconds=settings.google_connect_timeout_seconds,
+            read_timeout_seconds=settings.google_read_timeout_seconds,
+        )
+        try:
+            result = context.collect(candidates, discovery_seeds=[])
+            context_series = dict(result.get("series") or {})
+            provider = str(result.get("provider") or "SerpApi Google Trends")
+            warnings.extend(result.get("warnings") or [])
+            request_count += int(result.get("requests_used") or 0)
+            request_ceiling += int(result.get("request_ceiling") or 0)
+            attempts.append(
+                {
+                    "stage": "12-month context",
+                    "status": "succeeded",
+                    "requests": int(result.get("requests_used") or 0),
+                }
+            )
+        except Exception as exc:
+            warnings.append(f"Google 12-month context: {exc}")
+            attempts.append(
+                {
+                    "stage": "12-month context",
+                    "status": "failed",
+                    "detail": str(exc)[:260],
+                }
+            )
+        try:
+            result = recent.collect(candidates, discovery_seeds=[])
+            recent_series = dict(result.get("series") or {})
+            provider = str(result.get("provider") or provider)
+            warnings.extend(result.get("warnings") or [])
+            request_count += int(result.get("requests_used") or 0)
+            request_ceiling += int(result.get("request_ceiling") or 0)
+            attempts.append(
+                {
+                    "stage": "90-day weekly acceleration",
+                    "status": "succeeded",
+                    "requests": int(result.get("requests_used") or 0),
+                }
+            )
+        except Exception as exc:
+            warnings.append(f"Google 90-day acceleration: {exc}")
+            attempts.append(
+                {
+                    "stage": "90-day weekly acceleration",
+                    "status": "failed",
+                    "detail": str(exc)[:260],
+                }
+            )
+
+        if context_series or recent_series:
+            google_fresh = True
+            state = "LIVE" if context_series and recent_series else "PARTIAL"
+            status = _status(
+                state,
+                f"{len(context_series)} annual charts · "
+                f"{len(recent_series)} 90-day measurements",
+            )
+            cache_out = {
+                "schema_version": GOOGLE_CACHE_SCHEMA_VERSION,
+                "collected_at": datetime.now(tz=timezone.utc).isoformat(),
+                "market": settings.google_geo,
+                "context_timeframe": settings.google_timeframe,
+                "discovery_timeframe": settings.google_discovery_timeframe,
+                "provider": provider,
+                "context_series": context_series,
+                "recent_series": recent_series,
+                "related": [],
+                "candidate_input_fingerprint": candidate_fingerprint,
+                "validation_plan": validation_plan,
+            }
+            cache_age_hours = 0.0
+        elif (
+            cache_candidate_match
+            and cache_age_hours is not None
+            and cache_age_hours <= max(1, settings.google_stale_cache_days) * 24
+        ):
+            context_series = dict(cache.get("context_series") or {})
+            recent_series = dict(cache.get("recent_series") or {})
+            provider = str(cache.get("provider") or "previous live source")
+            used_cache = True
+            status = _status(
+                "STALE",
+                f"live refresh failed · cache {float(cache_age_hours):.1f}h old",
+            )
+            warnings.append(
+                "Google Trends refresh failed. Candidate-matched cached charts are shown as stale context only."
+            )
+        else:
+            status = _status("FAILED", "no current publisher-term timeline")
+
+    rows = score_google_windows(
+        context_series,
+        recent_series,
+        audit=filtered_terms,
+    )
+    plan_by_query = {
+        str(row.get("query") or "").casefold(): row for row in validation_plan
+    }
+    aligned_rows: list[dict[str, Any]] = []
+    for original in rows:
+        row = dict(original)
+        plan_row = plan_by_query.get(str(row.get("query") or "").casefold())
+        if not plan_row:
+            continue
+        row.update(
+            {
+                "editorial_id": str(plan_row.get("id") or ""),
+                "id": str(plan_row.get("id") or ""),
+                "name": str(plan_row.get("name") or row.get("name") or ""),
+                "google_query": str(plan_row.get("query") or ""),
+                "google_fresh": google_fresh,
+                "google_cache_used": used_cache,
+                "google_stale": bool(used_cache and not google_fresh),
+            }
+        )
+        aligned_rows.append(row)
+
+    meta = {
+        "provider": provider,
+        "market": settings.google_geo,
+        "context_timeframe": settings.google_timeframe,
+        "discovery_timeframe": settings.google_discovery_timeframe,
+        "terms_returned": len(context_series),
+        "recent_terms_returned": len(recent_series),
+        "related_queries_returned": 0,
+        "used_cache": used_cache,
+        "cache_age_hours": (
+            round(float(cache_age_hours), 1)
+            if cache_age_hours is not None
+            else None
+        ),
+        "api_requests": request_count,
+        "api_request_ceiling": request_ceiling,
+        "attempts": attempts,
+        "candidate_input_fingerprint": candidate_fingerprint,
+        "cache_candidate_match": cache_candidate_match,
+        "validation_plan": validation_plan,
+        "seed_terms_used": 0,
+        "chart_ready_terms": sum(
+            bool(row.get("chart_ready") or row.get("recent_chart_ready"))
+            for row in aligned_rows
+        ),
+        "flat_or_invalid_terms": sum(
+            not bool(row.get("chart_ready") or row.get("recent_chart_ready"))
+            for row in aligned_rows
+        ),
+    }
+    return aligned_rows, meta, cache_out, status, google_fresh
+
+
 def _catalogue(
     settings: Settings,
     *,
@@ -779,7 +1069,7 @@ def _blog_products(
     ][:5]
 
 
-def refresh_snapshot(
+def refresh_snapshot_legacy(
     settings: Settings,
     *,
     use_llm: bool = True,
@@ -1276,6 +1566,465 @@ def refresh_snapshot(
                     "FAILED",
                     type(exc).__name__,
                 )
+                warnings.append(f"Supabase persistence: {exc}")
+            snapshot["meta"]["source_status"] = source_status
+            snapshot["meta"]["warnings"] = warnings
+            save_snapshot(snapshot, settings.snapshot_path)
+    return snapshot
+
+
+def refresh_snapshot(
+    settings: Settings,
+    *,
+    use_llm: bool = True,
+    persist: bool = True,
+    catalog_source: str = "auto",
+    catalog_products: list[dict[str, Any]] | None = None,
+    generate_editorial: bool = False,
+) -> dict[str, Any]:
+    """Run the publisher-first editorial-consensus workflow.
+
+    Recent publisher articles discover candidates. OpenAI extracts concrete
+    trend labels, deterministic Python counts independent publisher overlap,
+    and Google Trends measures only the resulting terms. X and Instagram are
+    intentionally absent from this refresh path.
+    """
+
+    if catalog_source not in {"auto", "shopify_api", "csv"}:
+        raise ValueError("catalog_source must be 'auto', 'shopify_api', or 'csv'.")
+
+    reference = datetime.now(tz=timezone.utc)
+    warnings: list[str] = []
+    filtered_terms: list[dict[str, str]] = []
+    source_status: dict[str, str] = {
+        "x_apify": _status("RETIRED", "not used by editorial-consensus discovery"),
+        "instagram_hashtags": _status(
+            "RETIRED", "not used by editorial-consensus discovery"
+        ),
+        "openrouter": _status("STANDBY", "not required by this workflow"),
+    }
+    existing_snapshot = load_snapshot(settings.snapshot_path)
+    openai = (
+        _openai(settings)
+        if settings.openai_configured and use_llm
+        else None
+    )
+    openai_tasks: list[str] = []
+    model_results: list[dict[str, Any]] = []
+
+    if settings.commercial_sources_enabled:
+        try:
+            collector = CommercialSourceCollector(
+                sources=EDITORIAL_PUBLISHERS,
+                timeout_seconds=settings.commercial_timeout_seconds,
+                max_workers=settings.commercial_max_workers,
+                serpapi_api_key=settings.serpapi_api_key,
+                serpapi_endpoint=settings.serpapi_endpoint,
+            )
+            editorial_collection = collector.collect(now=reference)
+        except Exception as exc:
+            editorial_collection = {
+                "evidence": [],
+                "articles": [],
+                "source_status": {},
+                "publishers_requested": len(EDITORIAL_PUBLISHERS),
+                "publishers_live": 0,
+                "publishers_partial": 0,
+                "publishers_failed": len(EDITORIAL_PUBLISHERS),
+                "articles_loaded": 0,
+            }
+            warnings.append(f"Editorial publisher collection: {exc}")
+    else:
+        editorial_collection = {
+            "evidence": [],
+            "articles": [],
+            "source_status": {},
+            "publishers_requested": len(EDITORIAL_PUBLISHERS),
+            "publishers_live": 0,
+            "publishers_partial": 0,
+            "publishers_failed": len(EDITORIAL_PUBLISHERS),
+            "articles_loaded": 0,
+        }
+
+    articles = list(editorial_collection.get("articles") or [])[
+        : max(1, settings.editorial_max_articles)
+    ]
+    deterministic_evidence = [
+        dict(row)
+        for row in editorial_collection.get("evidence") or []
+    ]
+
+    if openai is not None and articles:
+        try:
+            model_results = openai.extract_editorial_trends(
+                articles,
+                batch_size=settings.editorial_ai_batch_size,
+            )
+            openai_tasks.append("recent-article extraction")
+        except Exception as exc:
+            warnings.append(
+                f"OpenAI article extraction: {exc}. Publisher-title and heading extraction was used."
+            )
+    elif not settings.openai_configured:
+        warnings.append(
+            "OPENAI_API_KEY is not configured. Recent publisher titles and headings were used as the extraction fallback."
+        )
+
+    editorial_evidence = build_editorial_evidence(
+        articles,
+        model_results,
+        deterministic_evidence,
+        now=reference,
+        lookback_days=settings.editorial_lookback_days,
+    )
+
+    candidates = [
+        {
+            "phrase": str(row.get("trend_name") or ""),
+            "name": str(row.get("trend_name") or ""),
+            "count": 1,
+        }
+        for row in editorial_evidence
+        if row.get("trend_name")
+    ]
+    model_clusters: list[dict[str, Any]] = []
+    if openai is not None and candidates:
+        try:
+            model_clusters = openai.cluster_topic_phrases(candidates[:70])
+            openai_tasks.append("conservative alias grouping")
+        except Exception as exc:
+            warnings.append(
+                f"OpenAI alias grouping: {exc}. Conservative local grouping was used."
+            )
+    clusters = build_topic_clusters(
+        candidates,
+        llm_clusters=model_clusters,
+        max_clusters=max(20, min(120, len(candidates) or 20)),
+        audit=filtered_terms,
+    )
+    editorial_evidence = consolidate_commercial_evidence(
+        editorial_evidence,
+        clusters,
+    )
+    editorial_rows = score_editorial_consensus(
+        editorial_evidence,
+        now=reference,
+        lookback_days=settings.editorial_lookback_days,
+    )
+
+    evidence_by_publisher: dict[str, list[dict[str, Any]]] = {}
+    for row in editorial_evidence:
+        evidence_by_publisher.setdefault(str(row.get("publisher_id") or ""), []).append(row)
+    source_details = dict(editorial_collection.get("source_status") or {})
+    for publisher_id, status_row in source_details.items():
+        rows = evidence_by_publisher.get(publisher_id, [])
+        status_row["evidence_rows"] = len(rows)
+        status_row["named_trends"] = len(
+            {str(row.get("trend_id") or "") for row in rows}
+        )
+        if rows:
+            status_row["state"] = (
+                "LIVE" if not status_row.get("errors") else "PARTIAL"
+            )
+    editorial_collection["source_status"] = source_details
+    editorial_collection["evidence_rows"] = len(editorial_evidence)
+    editorial_collection["named_trends"] = len(editorial_rows)
+    editorial_collection["articles_scanned"] = len(articles)
+    editorial_collection["model_extracted_trends"] = sum(
+        len(row.get("trends") or []) for row in model_results
+    )
+
+    publishers_with_evidence = sum(
+        int(row.get("named_trends") or 0) > 0
+        for row in source_details.values()
+    )
+    publisher_state = (
+        "LIVE"
+        if editorial_rows and publishers_with_evidence >= 4
+        else "PARTIAL"
+        if editorial_rows or articles
+        else "FAILED"
+    )
+    source_status["editorial_publishers"] = _status(
+        publisher_state,
+        f"{len(articles)} recent articles · {publishers_with_evidence}/"
+        f"{len(EDITORIAL_PUBLISHERS)} publishers with trends",
+    )
+    # Compatibility key for older diagnostics and archived snapshots.
+    source_status["commercial_websites"] = source_status["editorial_publishers"]
+
+    google_rows, google_meta, google_cache, source_status[
+        "google_trends"
+    ], google_fresh = _collect_editorial_google(
+        settings,
+        editorial_rows=editorial_rows,
+        existing_snapshot=existing_snapshot,
+        warnings=warnings,
+        filtered_terms=filtered_terms,
+    )
+    validation_plan = list(google_meta.get("validation_plan") or [])
+    trends = merge_editorial_google_signals(editorial_rows, google_rows)
+    trends = upgrade_trends_to_v2(trends, now=reference)
+
+    if openai is not None and trends:
+        try:
+            trends = openai.enrich_trends(trends)
+            openai_tasks.append("evidence-locked summary")
+        except Exception as exc:
+            warnings.append(
+                f"OpenAI trend summary: {exc}. Deterministic descriptions were retained."
+            )
+    trends = apply_editorial_decision_rules(trends)
+
+    fallback_kind = ""
+    if not trends:
+        prior_trends = list((existing_snapshot or {}).get("trends") or [])
+        if prior_trends:
+            trends = [
+                {
+                    **trend,
+                    "decision_ready": False,
+                    "business_action": "Watch",
+                    "confidence": "Exploratory",
+                    "is_stale": True,
+                    "live_discovered": False,
+                    "primary_discovery_origin": "historical",
+                    "discovery_origin_label": "Historical snapshot",
+                }
+                for trend in prior_trends
+            ]
+            fallback_kind = "stale"
+            warnings.append(
+                "No recent editorial trend rows were available. The previous snapshot is shown as a stale watchlist."
+            )
+        else:
+            trends = [
+                {
+                    **trend,
+                    "decision_ready": False,
+                    "business_action": "Watch",
+                    "is_demo": True,
+                    "primary_discovery_origin": "demo",
+                    "discovery_origin_label": "Illustrative demo data",
+                }
+                for trend in demo_trends()
+            ]
+            fallback_kind = "demo"
+
+    products, actual_catalog_source, source_status[
+        "shopify"
+    ], catalogue_meta = _catalogue(
+        settings,
+        catalog_source=catalog_source,
+        catalog_products=catalog_products,
+        existing_snapshot=existing_snapshot,
+        warnings=warnings,
+    )
+    recommendations = match_products(trends, products)
+    trends, recommendations = apply_hula_opportunity_scores(
+        trends,
+        recommendations,
+        products,
+    )
+
+    editorial = dict((existing_snapshot or {}).get("editorial") or {})
+    if generate_editorial:
+        ready = [trend for trend in trends if trend.get("decision_ready")]
+        if ready and (settings.openai_configured or settings.gemini_configured):
+            lead = ready[0]
+            selected_products = _blog_products(lead, products, recommendations)
+            if selected_products:
+                try:
+                    writer = openai or (
+                        _openai(settings)
+                        if settings.openai_configured
+                        else _gemini(settings)
+                    )
+                    editorial["latest_blog"] = generate_researched_blog(
+                        writer,
+                        lead,
+                        selected_products,
+                        reason="This week's strongest editorial-consensus trend",
+                        stores=["Online", "HULA Soho", "The Hub"],
+                    )
+                    if writer is openai:
+                        openai_tasks.append("evidence-locked Wednesday draft")
+                    else:
+                        source_status["gemini"] = _status(
+                            "LIVE", f"{settings.gemini_model} · Wednesday draft"
+                        )
+                except Exception as exc:
+                    warnings.append(f"Evidence-locked Wednesday blog: {exc}")
+            else:
+                warnings.append(
+                    "No matched catalogue products were available for an automatic Wednesday draft."
+                )
+        elif not settings.openai_configured and not settings.gemini_configured:
+            source_status["gemini"] = "NOT CONFIGURED"
+    elif settings.gemini_configured:
+        source_status["gemini"] = _status("STANDBY", "optional blog fallback")
+    else:
+        source_status["gemini"] = "NOT CONFIGURED"
+
+    if openai is not None:
+        source_status["openai"] = _status(
+            "LIVE" if openai_tasks else "PARTIAL",
+            f"{settings.openai_luna_model} / {settings.openai_sol_model} · "
+            + (", ".join(dict.fromkeys(openai_tasks)) or "fallback only"),
+        )
+    elif settings.openai_configured:
+        source_status["openai"] = _status("STANDBY", "disabled for this refresh")
+    else:
+        source_status["openai"] = _status(
+            "NOT CONFIGURED", "deterministic publisher extraction used"
+        )
+
+    if settings.supabase_configured:
+        source_status["supabase"] = _status("LIVE", "configured · history ready")
+    else:
+        source_status["supabase"] = "NOT CONFIGURED"
+
+    if fallback_kind == "stale":
+        mode = "stale"
+    elif fallback_kind == "demo":
+        mode = "demo"
+    elif (
+        editorial_rows
+        and google_fresh
+        and actual_catalog_source == "shopify_api"
+        and source_status["shopify"].startswith("LIVE")
+    ):
+        mode = "live"
+    else:
+        mode = "hybrid"
+
+    extraction_counts = {
+        str(row.get("article_id") or ""): len(row.get("trends") or [])
+        for row in model_results
+    }
+    article_inventory = [
+        {
+            "article_id": row.get("article_id"),
+            "publisher": row.get("publisher"),
+            "publisher_id": row.get("publisher_id"),
+            "publisher_group": row.get("publisher_group"),
+            "title": row.get("title"),
+            "url": row.get("url"),
+            "published_at": row.get("published_at"),
+            "acquisition": row.get("acquisition"),
+            "model_trends_extracted": extraction_counts.get(
+                str(row.get("article_id") or ""), 0
+            ),
+        }
+        for row in articles
+    ]
+    # The transient model input is intentionally removed before persistence.
+    editorial_collection = {
+        key: value
+        for key, value in editorial_collection.items()
+        if key not in {"articles", "evidence"}
+    }
+    filtered_audit = consolidate_filter_audit(filtered_terms)
+    generated_at = reference.isoformat()
+    snapshot = {
+        "meta": {
+            "generated_at": generated_at,
+            "mode": mode,
+            "region": settings.google_geo,
+            "catalogue_source": actual_catalog_source,
+            **catalogue_meta,
+            "source_status": source_status,
+            "google_trends": google_meta,
+            "editorial_collection": editorial_collection,
+            "editorial_articles": article_inventory,
+            "editorial_discoveries": editorial_rows,
+            # Compatibility aliases used by catalogue and older report views.
+            "commercial_collection": editorial_collection,
+            "commercial_discoveries": editorial_rows,
+            "commercial_evidence": editorial_evidence,
+            "validation_plan": validation_plan,
+            "provenance_summary": {
+                "live_discovered": sum(
+                    bool(trend.get("live_discovered")) for trend in trends
+                ),
+                "seed_only": 0,
+                "historical": sum(
+                    trend.get("primary_discovery_origin") == "historical"
+                    for trend in trends
+                ),
+                "demo": sum(
+                    trend.get("primary_discovery_origin") == "demo"
+                    for trend in trends
+                ),
+            },
+            "filtered_terms": filtered_audit,
+            "raw_counts": {
+                "editorial_publishers_configured": len(EDITORIAL_PUBLISHERS),
+                "editorial_articles_scanned": len(articles),
+                "editorial_evidence_rows": len(editorial_evidence),
+                "editorial_trends": len(editorial_rows),
+                "editorial_overlap_trends": sum(
+                    int(row.get("publisher_count") or 0) >= 2
+                    for row in editorial_rows
+                ),
+                "model_trends_extracted": sum(extraction_counts.values()),
+                "google_terms": len(google_rows),
+                "google_chart_ready_terms": int(
+                    google_meta.get("chart_ready_terms") or 0
+                ),
+                "validation_candidates": len(validation_plan),
+                "configured_seed_candidates": 0,
+                "x_posts_collected": 0,
+                "instagram_hashtags_returned": 0,
+                "shopify_products": len(products),
+                "recommendations": len(recommendations),
+            },
+            "warnings": warnings,
+            "openai_usage": list(openai.usage_log) if openai is not None else [],
+            "methodology_version": METHODOLOGY_VERSION,
+            "discovery_pipeline_version": "4.0",
+            "quality_filter_version": "5.0",
+            "google_display_schema_version": "3.0",
+            "privacy": (
+                "Recent public article text is held only in memory while OpenAI extracts "
+                "specific trend labels. The snapshot stores article titles, dates, URLs, "
+                "short evidence excerpts and model metadata—not copied article bodies. "
+                "X and Instagram are not queried. Shopify access is read-only and excludes "
+                "customers, orders and payments. Python owns overlap, recency, Google and "
+                "business-action calculations."
+            ),
+        },
+        "analysis_period": analysis_period(
+            reference,
+            geography=settings.google_geo,
+        ),
+        "methodology_version": METHODOLOGY_VERSION,
+        "google_cache": google_cache,
+        "trends": trends,
+        "products": products,
+        "recommendations": recommendations,
+        "editorial": editorial,
+        "excluded_candidates": [
+            {
+                "candidate": str(row.get("term") or row.get("candidate") or ""),
+                "reason": normalise_exclusion_reason(row.get("reason")),
+            }
+            for row in filtered_audit
+        ],
+    }
+
+    if persist:
+        save_snapshot(snapshot, settings.snapshot_path)
+        if settings.supabase_configured:
+            try:
+                remote = _supabase(settings)
+                remote.save_snapshot(snapshot)
+                latest_blog = editorial.get("latest_blog")
+                if generate_editorial and isinstance(latest_blog, dict):
+                    remote.save_blog(latest_blog)
+                source_status["supabase"] = _status("LIVE", "weekly aggregate saved")
+            except Exception as exc:
+                source_status["supabase"] = _status("FAILED", type(exc).__name__)
                 warnings.append(f"Supabase persistence: {exc}")
             snapshot["meta"]["source_status"] = source_status
             snapshot["meta"]["warnings"] = warnings

@@ -120,6 +120,59 @@ RELEVANCE_SCHEMA = _strict_object(
     ["reviews"],
 )
 
+EDITORIAL_EXTRACTION_SCHEMA = _strict_object(
+    {
+        "articles": {
+            "type": "array",
+            "items": _strict_object(
+                {
+                    "article_id": {"type": "string"},
+                    "trends": {
+                        "type": "array",
+                        "items": _strict_object(
+                            {
+                                "name": {"type": "string"},
+                                "google_query": {"type": "string"},
+                                "category": {
+                                    "type": "string",
+                                    "enum": [
+                                        "clothing",
+                                        "bags",
+                                        "shoes",
+                                        "jewellery",
+                                        "colour",
+                                        "material",
+                                        "styling",
+                                        "other",
+                                    ],
+                                },
+                                "article_role": {
+                                    "type": "string",
+                                    "enum": ["central", "section", "passing"],
+                                },
+                                "evidence_excerpt": {"type": "string"},
+                                "why_it_is_a_trend": {"type": "string"},
+                                "confidence": {"type": "number"},
+                            },
+                            [
+                                "name",
+                                "google_query",
+                                "category",
+                                "article_role",
+                                "evidence_excerpt",
+                                "why_it_is_a_trend",
+                                "confidence",
+                            ],
+                        ),
+                    },
+                },
+                ["article_id", "trends"],
+            ),
+        }
+    },
+    ["articles"],
+)
+
 BLOG_SCHEMA = _strict_object(
     {
         "title": {"type": "string"},
@@ -290,6 +343,116 @@ class OpenAIResponsesConnector:
         if result.get("ok") is not True:
             raise OpenAIResponsesError("OpenAI answered, but the diagnostic result was unexpected.")
         return {"ok": True, "model": self.luna_model}
+
+    def extract_editorial_trends(
+        self,
+        articles: list[dict[str, Any]],
+        *,
+        batch_size: int = 5,
+    ) -> list[dict[str, Any]]:
+        """Extract concrete trend claims from bounded recent article text.
+
+        Luna performs classification and wording only. Publisher overlap,
+        recency, Google movement and every public score remain deterministic.
+        """
+
+        prepared: list[dict[str, Any]] = []
+        for article in articles:
+            article_id = str(article.get("article_id") or "").strip()
+            title = str(article.get("title") or "").strip()
+            if not article_id or not title:
+                continue
+            headings = [
+                str(value).strip()[:160]
+                for value in article.get("headings") or []
+                if str(value).strip()
+            ][:35]
+            paragraphs = [
+                str(value).strip()
+                for value in article.get("paragraphs") or []
+                if str(value).strip()
+            ]
+            prepared.append(
+                {
+                    "article_id": article_id,
+                    "publisher": str(article.get("publisher") or ""),
+                    "published_at": str(article.get("published_at") or "")[:10],
+                    "title": title[:240],
+                    "headings": headings,
+                    "body": "\n".join(paragraphs)[:9_000],
+                }
+            )
+        if not prepared:
+            return []
+
+        maximum = max(1, min(8, int(batch_size)))
+        extracted: list[dict[str, Any]] = []
+        for start in range(0, len(prepared), maximum):
+            batch = prepared[start : start + maximum]
+            allowed_ids = {row["article_id"] for row in batch}
+            result = self.call_json(
+                model=self.luna_model,
+                task="recent_editorial_trend_extraction",
+                instructions=(
+                    "You extract current, concrete consumer-fashion trends from supplied "
+                    "publisher articles. Use only the supplied title, headings and body. A "
+                    "valid trend is a specific garment, accessory, silhouette, material, colour "
+                    "or styling idea that the article presents as current or newly relevant. "
+                    "Examples of the right specificity are 'long-sleeve white T-shirts', "
+                    "'drop-waist dresses' and 'gold coin necklaces'. Reject generic departments, "
+                    "brands, named products, celebrities, sales, evergreen shopping advice and "
+                    "incidental product-card mentions. Return at most eight trends per article. "
+                    "Use article_role=central or section for genuine discoveries; use passing only "
+                    "when explicitly labelled but not developed. The google_query must be a short "
+                    "plain-English phrase a shopper would search. evidence_excerpt must copy no more "
+                    "than 18 words from the supplied article. Do not invent evidence. Return every "
+                    "article_id exactly as supplied, using an empty trends array when nothing qualifies."
+                ),
+                input_text=json.dumps(batch, ensure_ascii=False),
+                schema=EDITORIAL_EXTRACTION_SCHEMA,
+                max_output_tokens=6_000,
+                reasoning_effort="low",
+            )
+            for article_result in result.get("articles") or []:
+                if not isinstance(article_result, dict):
+                    continue
+                article_id = str(article_result.get("article_id") or "")
+                if article_id not in allowed_ids:
+                    continue
+                trends: list[dict[str, Any]] = []
+                for raw in article_result.get("trends") or []:
+                    if not isinstance(raw, dict):
+                        continue
+                    name = str(raw.get("name") or "").strip()[:100]
+                    query = str(raw.get("google_query") or "").strip()[:100]
+                    role = str(raw.get("article_role") or "passing")
+                    if not name or not query or role == "passing":
+                        continue
+                    try:
+                        confidence = float(raw.get("confidence") or 0)
+                    except (TypeError, ValueError):
+                        confidence = 0.0
+                    trends.append(
+                        {
+                            "name": name,
+                            "google_query": query,
+                            "category": str(raw.get("category") or "other"),
+                            "article_role": role,
+                            "evidence_excerpt": " ".join(
+                                str(raw.get("evidence_excerpt") or "")
+                                .strip()
+                                .split()[:18]
+                            ),
+                            "why_it_is_a_trend": str(
+                                raw.get("why_it_is_a_trend") or ""
+                            ).strip()[:320],
+                            "confidence": round(max(0.0, min(1.0, confidence)), 3),
+                        }
+                    )
+                extracted.append(
+                    {"article_id": article_id, "trends": trends[:8]}
+                )
+        return extracted
 
     def cluster_topic_phrases(self, candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
         compact = [

@@ -98,3 +98,68 @@ def test_evidence_locked_blog_returns_only_supplied_source_urls(monkeypatch) -> 
             "url": "https://example.com/supplied",
         }
     ]
+
+
+def test_recent_article_extraction_uses_bounded_structured_schema(monkeypatch) -> None:
+    connector = OpenAIResponsesConnector("test-key")
+    captured: dict = {}
+    model_result = {
+        "articles": [
+            {
+                "article_id": "www-a1",
+                "trends": [
+                    {
+                        "name": "Long-Sleeve White T-Shirts",
+                        "google_query": "white long sleeve t shirt",
+                        "category": "clothing",
+                        "article_role": "central",
+                        "evidence_excerpt": "Long-sleeve white T-shirts are a transitional trend.",
+                        "why_it_is_a_trend": "The article presents it as current.",
+                        "confidence": 0.93,
+                    },
+                    {
+                        "name": "Incidental Loafers",
+                        "google_query": "loafers",
+                        "category": "shoes",
+                        "article_role": "passing",
+                        "evidence_excerpt": "Add loafers.",
+                        "why_it_is_a_trend": "Only a passing mention.",
+                        "confidence": 0.7,
+                    },
+                ],
+            }
+        ]
+    }
+
+    def post(url, *, headers, json, timeout):
+        captured["body"] = json
+        return FakeResponse(model_result)
+
+    monkeypatch.setattr(connector.session, "post", post)
+    result = connector.extract_editorial_trends(
+        [
+            {
+                "article_id": "www-a1",
+                "publisher": "Who What Wear",
+                "published_at": "2026-08-04",
+                "title": "6 Transitional Trends",
+                "headings": ["Long-Sleeve White T-Shirts"],
+                "paragraphs": ["Body " * 3_000],
+            }
+        ]
+    )
+
+    assert result[0]["trends"] == [
+        {
+            "name": "Long-Sleeve White T-Shirts",
+            "google_query": "white long sleeve t shirt",
+            "category": "clothing",
+            "article_role": "central",
+            "evidence_excerpt": "Long-sleeve white T-shirts are a transitional trend.",
+            "why_it_is_a_trend": "The article presents it as current.",
+            "confidence": 0.93,
+        }
+    ]
+    assert captured["body"]["model"] == "gpt-5.6-luna"
+    assert captured["body"]["text"]["format"]["strict"] is True
+    assert len(captured["body"]["input"]) < 12_000

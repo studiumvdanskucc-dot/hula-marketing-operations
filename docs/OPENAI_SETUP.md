@@ -1,14 +1,14 @@
-# OpenAI mixed-model setup
+# OpenAI article-extraction setup
 
-The recommended first-party workflow uses the Responses API with strict
-structured JSON output:
+The first-party path uses the Responses API with strict structured output:
 
-- `gpt-5.6-luna` for inexpensive relevance checks;
-- `gpt-5.6-terra` for conservative alias grouping;
-- `gpt-5.6-sol` for the final short-list synthesis and evidence-locked blog.
+- `gpt-5.6-luna` scans bounded recent-article batches and extracts concrete
+  trend names, concise Google queries and short evidence excerpts;
+- `gpt-5.6-terra` conservatively groups genuine aliases;
+- `gpt-5.6-sol` produces the optional evidence-locked synthesis and blog.
 
-Python—not a model—calculates dates, trends, weights, caps, confidence,
-coverage, HULA opportunity and ordering.
+Python—not a model—calculates dates, publisher overlap, freshness, Google
+time-series metrics, priority, action rules, product matches and ordering.
 
 ## Secrets
 
@@ -19,24 +19,28 @@ OPENAI_LUNA_MODEL = "gpt-5.6-luna"
 OPENAI_TERRA_MODEL = "gpt-5.6-terra"
 OPENAI_SOL_MODEL = "gpt-5.6-sol"
 OPENAI_TIMEOUT_SECONDS = "180"
+EDITORIAL_AI_BATCH_SIZE = "5"
 ```
 
 Add `OPENAI_API_KEY` separately to Streamlit Secrets and GitHub Actions Secrets
-if both environments run the workflow. Never put a real key in a repository.
+if both environments run the workflow. Never commit a real key.
 
-## Behaviour and cost controls
+## Data and cost controls
 
 - Requests use `store: false`.
-- Each task uses a strict JSON schema.
-- Sol receives a short list and compact evidence summaries—not whole pages.
-- The blog can cite only URLs already stored in the trend evidence.
-- API token usage and a model-price estimate are stored in snapshot metadata.
-- OpenRouter is used only when OpenAI is absent; deterministic local logic is
-  the final fallback.
+- Every extraction task uses a strict JSON schema.
+- Batches contain bounded titles, headings and article paragraphs.
+- Full article bodies are not stored in the snapshot.
+- The model may return only specific fashion concepts; passing mentions and
+  vague themes are rejected by deterministic filters.
+- The blog can cite only URLs already stored in the ranked evidence.
+- Token usage and an estimated model cost are stored in snapshot metadata.
+- Explicit publisher titles/headings remain a deterministic fallback when the
+  API is absent or one extraction batch fails.
 
-Use **Data & Setup → Test OpenAI Responses** before the first scheduled run.
-Pricing can change, so confirm current rates in the official OpenAI pricing
-documentation before budgeting.
+Use **Data & Setup → Test OpenAI article extraction** before the first live
+refresh. Pricing changes over time, so confirm current rates in the official
+OpenAI documentation before budgeting.
 
 Official references:
 

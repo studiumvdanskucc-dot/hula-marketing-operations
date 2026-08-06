@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 
 from src.connectors.commercial_sources import (
     COMMERCIAL_SOURCES,
+    CommercialSource,
     CommercialSourceCollector,
     _page_metadata,
     _source_headings,
@@ -198,3 +199,60 @@ def test_configured_current_report_cannot_be_pushed_out_by_sitemap_noise() -> No
         ],
     )
     assert ranked[0]["url"] == source.article_urls[0]
+
+
+def test_collector_returns_transient_article_documents_for_model_scan() -> None:
+    index_url = "https://publisher.example/trends"
+    article_url = "https://publisher.example/fashion/white-shirt-trend"
+
+    class Response:
+        ok = True
+        headers = {"Content-Type": "text/html"}
+
+        def __init__(self, url: str, text: str) -> None:
+            self.url = url
+            self.text = text
+
+    class Session:
+        def get(self, url: str, **_kwargs) -> Response:
+            if url == index_url:
+                return Response(
+                    url,
+                    f'<a href="{article_url}">The White Shirt Trend for Fall</a>',
+                )
+            return Response(
+                url,
+                """
+                <html><head>
+                <title>The Long-Sleeve White T-Shirt Trend</title>
+                <meta property="article:published_time" content="2026-08-04T10:00:00Z">
+                </head><body>
+                <h1>The Long-Sleeve White T-Shirt Trend</h1>
+                <p>Long-sleeve white T-shirts are becoming a useful transitional layer for fall.</p>
+                </body></html>
+                """,
+            )
+
+    source = CommercialSource(
+        "publisher",
+        "Publisher",
+        (index_url,),
+        1.0,
+        max_articles=2,
+        max_age_days=21,
+        article_urls=(article_url,),
+        publisher_group="publisher",
+    )
+    result = CommercialSourceCollector(
+        sources=(source,),
+        max_workers=1,
+        session=Session(),
+    ).collect(now=datetime(2026, 8, 6, tzinfo=timezone.utc))
+
+    assert len(result["articles"]) == 1
+    article = result["articles"][0]
+    assert article["publisher"] == "Publisher"
+    assert article["url"] == article_url
+    assert article["paragraphs"] == [
+        "Long-sleeve white T-shirts are becoming a useful transitional layer for fall."
+    ]

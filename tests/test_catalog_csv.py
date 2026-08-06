@@ -132,7 +132,9 @@ def test_weekly_refresh_keeps_the_persisted_csv_catalogue(tmp_path, monkeypatch)
     )
 
 
-def test_repeated_refresh_reuses_fresh_google_cache(tmp_path, monkeypatch) -> None:
+def test_refresh_never_reuses_legacy_seed_cache_without_editorial_candidates(
+    tmp_path, monkeypatch
+) -> None:
     snapshot_path = tmp_path / "latest.json"
     default_settings = Settings()
     validation_plan = build_validation_plan(
@@ -203,6 +205,7 @@ def test_repeated_refresh_reuses_fresh_google_cache(tmp_path, monkeypatch) -> No
 
     refreshed = refresh_snapshot(settings, persist=False, catalog_source="auto")
 
-    assert refreshed["meta"]["source_status"]["google_trends"].startswith("LIVE")
-    assert refreshed["meta"]["google_trends"]["used_cache"] is True
-    assert refreshed["google_cache"]["context_series"]["Ballet Flats"]
+    assert refreshed["meta"]["source_status"]["google_trends"].startswith("PARTIAL")
+    assert refreshed["meta"]["google_trends"]["used_cache"] is False
+    assert refreshed["meta"]["google_trends"]["validation_plan"] == []
+    assert refreshed["google_cache"] == {}

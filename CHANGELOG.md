@@ -1,5 +1,25 @@
 # Changelog
 
+## Build 2026.08.06.4 — Publisher-First Editorial Consensus
+
+- Replaced open social discovery with a 21-day scan of seven fashion
+  publishers: Who What Wear, Vogue, ELLE, Harper's Bazaar, Marie Claire,
+  Glamour and InStyle.
+- Added bounded article documents and strict GPT extraction for specific
+  garments, accessories, silhouettes, colours, materials and styling ideas.
+- Added independent publisher-group consensus with overlap as the strongest
+  input, plus freshness, article repetition and extraction confidence.
+- Restricted Google Trends to the publisher-discovered shortlist and stores
+  recent 90-day plus 12-month timelines, week-on-week and year-on-year metrics.
+- Added transparent 70% editorial / 30% Google priority and simple Act/Test/
+  Watch rules.
+- Replaced Trend Radar with Editorial Radar and simplified Data & Setup to the
+  four active steps. X and Instagram calls and controls are retired.
+- Preserved catalogue matching, Campaign Studio, Wednesday Blog, Supabase,
+  safe diagnostics and the scheduled Wednesday refresh.
+- Added publisher-consensus, article-extraction, cache-plan and Streamlit UI
+  regression coverage.
+
 ## Build 2026.08.06.3 — Live Discovery Promotion Repair
 
 - Reordered the pipeline so approved publishers are collected before X and

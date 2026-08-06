@@ -1,176 +1,120 @@
-# Methodology 2.0
+# Editorial-consensus methodology 3.0
 
 ## Purpose
 
-The system answers two different questions:
+The app answers two separate questions:
 
-1. How confidently is a specific fashion trend gaining momentum now?
-2. If it is real, how useful is it for HULA's current luxury-resale catalogue?
+1. Which concrete fashion ideas are several recent editorial publishers
+   independently covering?
+2. Which of those ideas also show useful search movement and fit HULA's current
+   catalogue?
 
-The first answer must not increase merely because HULA owns matching stock.
-This is decision support, not a sales forecast.
+HULA inventory never changes whether a trend is considered real. It changes
+only the downstream merchandising opportunity.
 
-## Evidence contract
+## Discovery contract
 
-Every trend stores its aliases, score breakdown, Google measurements,
-independent-domain count, evidence count, linked evidence, warnings and dates.
-Every URL must come from collected input. Models may classify relevance,
-merge aliases and write explanations; they may not invent a source or number.
+The approved panel is Who What Wear, Vogue, ELLE, Harper's Bazaar, Marie
+Claire, Glamour and InStyle. Each weekly run looks back 21 days and attempts
+every publisher independently through public index pages, configured current
+articles, RSS/sitemaps and a bounded domain search fallback.
 
-Duplicate URLs are counted once. Identical substantial titles on different
-domains are treated as likely syndication and the higher-authority copy is
-retained. Contradictory evidence remains visible and reduces confidence.
+The collector does not log in, bypass a paywall or keep full copied articles.
+Bounded titles, headings and article paragraphs exist only in memory while GPT
+extracts candidates. The saved snapshot contains publisher, title, date, URL,
+acquisition route, short excerpt and extraction method.
 
-## Source authority
+## Candidate extraction
 
-| Source | Weight |
-| --- | ---: |
-| Data But Make It Fashion | 1.50 |
-| Lyst | 1.45 |
-| Tagwalk | 1.40 |
-| Who What Wear / UK | 1.30 |
-| Vogue / ELLE / Harper's Bazaar | 1.20 |
-| InStyle / Refinery29 / recognised fashion trade | 1.10 |
-| Recognised general news | 0.70 |
-| Unknown blog, aggregator or unverified account | 0.30 |
+GPT receives small article batches and a strict schema. It may return only a
+specific garment, accessory, silhouette, colour, material or styling idea,
+together with a concise Google query and evidence excerpt. Passing mentions,
+brands, sale stories, shopping boilerplate and vague labels such as `fashion`,
+`style` or `pants` alone are rejected.
 
-Authority does not override relevance: the evidence must specifically support
-the identified trend.
+If OpenAI is unavailable, explicit titles and trend-labelled headings form a
+deterministic fallback. Models may extract and merge aliases, but they never
+invent URLs, calculate dates, count publishers or own a score.
 
-## Recency
+## Independent overlap
 
-| Age | Factor |
-| --- | ---: |
-| Today | 1.00 |
-| 1–3 days | 0.85 |
-| 4–7 days | 0.65 |
-| 8–14 days | 0.35 |
-| More than 14 days | 0.10 |
+Evidence is deduplicated by publisher group, article URL and canonical trend.
+Editions belonging to one publisher group count once. Conservative alias
+groups are applied before breadth is measured; unrelated concepts are never
+merged merely because their wording is similar.
 
-An unknown date is deliberately weaker and never treated as current.
-
-## Validation priority is not confidence
-
-Newly published, one-source discoveries need measurement before they can earn
-confidence. The app therefore uses a separate, non-public-confidence priority
-based on publisher freshness, source strength and breadth to allocate the
-bounded Google, X and Instagram checks. It never adds points to the six
-confidence components. Every trend records whether it originated from a live
-publisher, live search discovery, live social evidence, a configured fallback
-seed, history or demo data.
-
-## Component scores
-
-### Editorial evidence — 25%
-
-Relevant original mentions are weighted by source authority, recency and
-evidence relevance. The score reaches 100 at eight weighted mentions. Reprints
-and shopping-card repetition do not add independent mentions.
-
-### Cross-source confirmation — 20%
-
-Independent authoritative domains map to 20, 40, 60, 75, 88 and 100 for one
-through six-or-more domains. A small diversity bonus rewards evidence across
-editorial, industry, runway, retail, search and social types.
-
-### Google Trends momentum — 20%
-
-The app retains the original Google 0–100 values and uses daily measurements:
+The editorial-consensus score is:
 
 ```text
-35% current seven-day mean
-35% week-over-week growth
-20% current seven-day regression slope
-10% breakout versus the 90-day mean, when available
+55% independent publisher overlap
+25% publication freshness
+10% repeated article coverage
+10% extraction confidence
 ```
 
-Google values are relative interest, not absolute volume. Fewer than fourteen
-daily points, invariant/zero timelines or stale results produce `null`, not
-zero. The public output includes both weekly means, percentage change, slope
-and the optional 90-day baseline.
+Publisher overlap is the dominant input. Two independent publishers are a
+confirmation; three or more create strong consensus. Articles older than the
+21-day window cannot contribute.
 
-### Social momentum — 15%
+## Google validation
+
+Only the bounded publisher-discovered shortlist is sent to Google Trends. No
+static seed list, related-query expansion, X topic or Instagram hashtag can
+introduce a candidate in pipeline 4.0.
+
+For each term the app stores:
+
+- a recent 90-day timeline for readable movement;
+- a 12-month context timeline;
+- current and previous seven-day averages;
+- week-on-week percentage change and recent slope;
+- a comparable year-ago-window change when the timeline supports it;
+- the exact query, market, provider, fetch time and data-quality state.
+
+The original Google 0–100 index is used for the chart. It is relative interest,
+not absolute search volume. Short, invariant, all-zero, stale or otherwise
+untrustworthy timelines remain unavailable rather than becoming zero.
+
+## Final priority and actions
 
 ```text
-40% mention growth
-30% engagement velocity
-20% creator diversity
-10% platform diversity
+Final trend priority = 70% editorial consensus + 30% Google validation
 ```
 
-Evidence quality discounts duplicated, promotional or author-dominated X
-conversation. Aggregate Instagram metadata is directional and capped; one
-viral post is not treated as broad adoption.
+When Google is unavailable, the scoring engine renormalises available
+non-zero-weight evidence and exposes lower coverage; it does not fabricate a
+measurement.
 
-### Runway / celebrity activation — 10%
+- **Act now**: at least three independent publishers, usable Google movement,
+  final priority of at least 70 and no sharp recent decline.
+- **Test this week**: at least two independent publishers plus Google, or one
+  fresh publisher with at least 20% week-on-week Google growth.
+- **Watch**: discovery is visible but not sufficiently confirmed.
 
-The component measures current runway recurrence, independent reporting and
-repeated adoption. A single old runway reference or isolated appearance stays
-weak. Named-person claims must be supported by the exact supplied evidence.
-
-### Commercial availability — 10%
-
-Independent current retail domains distinguish isolated availability from
-several recognised channels or widespread luxury/high-street adoption. HULA's
-own catalogue is excluded from this external-confidence component.
-
-## Missing data and completeness
-
-When a component is unavailable, its value remains `null`. The score is
-calculated from available components after proportionally redistributing their
-weights. Evidence coverage is reported separately as the sum of the original
-weights present. Therefore a 70-confidence result with 45% coverage is visibly
-different from 70 confidence with 90% coverage.
-
-## Confidence caps
-
-- One independent source: maximum 55.
-- Only an isolated product launch/retail signal: maximum 50.
-- Fewer than three independent evidence items: maximum 60.
-- Nothing published or measured in the current fourteen days: maximum 45.
-- Duplicate/syndicated rows are removed before scoring.
-- Contradictory evidence lowers the score.
-
-The action gate additionally requires current evidence, at least three items
-and two independent domains. `Act now` requires 75 confidence, 65% coverage,
-four items and three domains.
-
-## Momentum labels
-
-The average of available Google and social week-over-week changes maps to
-`breakout`, `accelerating`, `steadily rising`, `stable`, `cooling`, `declining`
-or `insufficient data`.
+The evidence-first confidence model keeps legacy component fields for snapshot
+compatibility, but social has weight 0% in this build. X and Instagram are not
+queried.
 
 ## HULA opportunity
 
-```text
-65% trend confidence
-25% current HULA catalogue match
-10% luxury-resale suitability
-```
-
-This score changes merchandising priority but never changes trend confidence.
+Trend priority is matched separately to the current in-stock catalogue. The
+product match uses title, type, vendor, tags and availability; it cannot raise
+the underlying editorial or Google evidence.
 
 ## Weekly pipeline
 
-1. Collect permitted publisher URLs and metadata.
-2. Retain titles, dates, selected headings and short evidence summaries.
-3. Rank current publisher discoveries for validation.
-4. Run open-ended X discovery plus one bounded publisher-validation family.
-5. Extract specific candidates, reject noise and merge conservative aliases.
-6. Count publisher breadth only after alias alignment.
-7. Build the live-first Google/Instagram validation queue; fallback seeds fill
-   only unused capacity.
-8. Reuse Google cache only when its candidate fingerprint still matches.
-9. Produce a short evidence-led synthesis.
-10. Calculate every number, cap and ordering in Python.
-11. Match the HULA catalogue and calculate HULA opportunity.
-12. Save the full evidence snapshot and optionally draft the blog from it.
+1. Read recent approved publisher pages.
+2. Extract specific trends from bounded article text.
+3. Filter noise and merge conservative aliases.
+4. Count independent publisher overlap and freshness.
+5. Query Google Trends for that shortlist only.
+6. Calculate charts, change metrics, priority and action rules in Python.
+7. Match the HULA catalogue and prepare campaign/editorial outputs.
+8. Save the evidence snapshot and optional Supabase history.
 
 ## Editorial control
 
-The blog writer receives stored trend evidence and selected public product
-fields only. It does not use live search grounding. Confirmed claims require
-valid source indices; unsupported exact claims are downgraded and kept outside
-publishable copy. An editor must still verify stock, condition, links, product
-details and final wording before publication.
+The blog writer receives the saved evidence and selected public product fields
+only. Confirmed claims require stored evidence URLs. An editor must still
+verify stock, condition, links, product details and final wording before
+publication.

@@ -11,17 +11,17 @@ from urllib.parse import urlparse
 from src.analysis.freshness import parse_utc
 
 
-METHODOLOGY_VERSION = "2.0"
+METHODOLOGY_VERSION = "3.0"
 
 # These are the only weights used for the public confidence score. Missing
 # components are excluded and the remaining weights are normalised.
 COMPONENT_WEIGHTS: dict[str, float] = {
-    "editorial": 0.25,
-    "cross_source": 0.20,
-    "google_trends": 0.20,
-    "social": 0.15,
-    "runway_celebrity": 0.10,
-    "commercial": 0.10,
+    "editorial": 0.40,
+    "cross_source": 0.25,
+    "google_trends": 0.25,
+    "social": 0.00,
+    "runway_celebrity": 0.05,
+    "commercial": 0.05,
 }
 
 COMPONENT_LABELS = {
@@ -54,6 +54,8 @@ SOURCE_AUTHORITY: dict[str, float] = {
     "trendalytics": 1.10,
     "heuritech": 1.10,
     "teen vogue": 1.10,
+    "marie claire": 1.20,
+    "glamour": 1.10,
 }
 
 INDUSTRY_SOURCES = {
@@ -78,6 +80,8 @@ EDITORIAL_SOURCES = {
     "business of fashion",
     "wwd",
     "fashionista",
+    "marie claire",
+    "glamour",
 }
 
 MOMENTUM_LABELS = {
@@ -142,10 +146,12 @@ def recency_factor(published_at: Any, *, now: datetime | None = None) -> float:
     if age_days == 0:
         return 1.00
     if age_days <= 3:
-        return 0.85
+        return 0.90
     if age_days <= 7:
-        return 0.65
+        return 0.75
     if age_days <= 14:
+        return 0.55
+    if age_days <= 21:
         return 0.35
     return 0.10
 
@@ -249,9 +255,9 @@ def _linear_slope(values: list[float]) -> float | None:
     ) / denominator
 
 
-def _dated_series(trend: dict[str, Any]) -> list[tuple[date, float]]:
+def _dated_points(points: Iterable[dict[str, Any]]) -> list[tuple[date, float]]:
     rows: list[tuple[date, float]] = []
-    for point in trend.get("series") or []:
+    for point in points:
         if not isinstance(point, dict):
             continue
         value = _series_value(point)
@@ -267,6 +273,10 @@ def _dated_series(trend: dict[str, Any]) -> list[tuple[date, float]]:
     return sorted(deduped.items())
 
 
+def _dated_series(trend: dict[str, Any]) -> list[tuple[date, float]]:
+    return _dated_points(trend.get("series") or [])
+
+
 def google_component(trend: dict[str, Any]) -> tuple[float | None, dict[str, float | None], list[str]]:
     if trend.get("google_stale"):
         metrics = {
@@ -275,11 +285,14 @@ def google_component(trend: dict[str, Any]) -> tuple[float | None, dict[str, flo
             "week_over_week_change_percent": None,
             "seven_day_slope": None,
             "ninety_day_baseline_mean": None,
+            "year_over_year_change_percent": None,
         }
         return None, metrics, [
             "Google Trends data is stale; it is displayed only as context and is excluded from scoring."
         ]
-    rows = _dated_series(trend)
+    context_rows = _dated_series(trend)
+    recent_rows = _dated_points(trend.get("recent_series") or [])
+    rows = recent_rows if len(recent_rows) >= 14 else context_rows
     warnings: list[str] = []
     metrics: dict[str, float | None] = {
         "current_week_mean": None,
@@ -287,6 +300,7 @@ def google_component(trend: dict[str, Any]) -> tuple[float | None, dict[str, flo
         "week_over_week_change_percent": None,
         "seven_day_slope": None,
         "ninety_day_baseline_mean": None,
+        "year_over_year_change_percent": None,
     }
     if len(rows) < 14:
         warnings.append("Insufficient Google Trends history for two seven-day windows.")
@@ -302,9 +316,22 @@ def google_component(trend: dict[str, Any]) -> tuple[float | None, dict[str, flo
     previous_mean = statistics.mean(previous_values)
     week_change = 100 * (current_mean - previous_mean) / max(previous_mean, 1.0)
     slope = _linear_slope(current_values) or 0.0
-    span_days = (rows[-1][0] - rows[0][0]).days
-    baseline_values = values[-90:] if span_days >= 80 and len(values) >= 80 else []
+    baseline_source = context_rows or rows
+    span_days = (baseline_source[-1][0] - baseline_source[0][0]).days
+    baseline_cutoff = baseline_source[-1][0] - timedelta(days=90)
+    baseline_values = [
+        value for day, value in baseline_source if day >= baseline_cutoff
+    ]
     baseline_mean = statistics.mean(baseline_values) if baseline_values else None
+    yoy_change = None
+    if span_days >= 330 and len(baseline_source) >= 26:
+        comparison_size = min(4, max(1, len(baseline_source) // 12))
+        current_period = [value for _, value in baseline_source[-comparison_size:]]
+        year_ago_period = [value for _, value in baseline_source[:comparison_size]]
+        if year_ago_period:
+            yoy_change = 100 * (
+                statistics.mean(current_period) - statistics.mean(year_ago_period)
+            ) / max(statistics.mean(year_ago_period), 1.0)
 
     metrics.update(
         {
@@ -313,6 +340,7 @@ def google_component(trend: dict[str, Any]) -> tuple[float | None, dict[str, flo
             "week_over_week_change_percent": round(week_change, 2),
             "seven_day_slope": round(slope, 3),
             "ninety_day_baseline_mean": round(baseline_mean, 2) if baseline_mean is not None else None,
+            "year_over_year_change_percent": round(yoy_change, 2) if yoy_change is not None else None,
         }
     )
     subcomponents: list[tuple[float, float]] = [
@@ -323,6 +351,8 @@ def google_component(trend: dict[str, Any]) -> tuple[float | None, dict[str, flo
     if baseline_mean is not None:
         peak_ratio = current_mean / max(baseline_mean, 1.0)
         subcomponents.append((0.10, _clamp(50 * peak_ratio)))
+    if yoy_change is not None:
+        subcomponents.append((0.10, _clamp(50 + yoy_change * 0.15)))
     denominator = sum(weight for weight, _ in subcomponents)
     score = sum(weight * value for weight, value in subcomponents) / denominator
     return round(score, 1), metrics, warnings
@@ -334,6 +364,11 @@ def _search_evidence(trend: dict[str, Any], metrics: dict[str, float | None]) ->
         f"previous seven-day mean {metrics.get('previous_week_mean')}; "
         f"week-on-week change {metrics.get('week_over_week_change_percent')}%."
     )
+    if metrics.get("year_over_year_change_percent") is not None:
+        summary += (
+            " Comparable year-ago change "
+            f"{metrics.get('year_over_year_change_percent')}%."
+        )
     last_date = None
     rows = _dated_series(trend)
     if rows:
@@ -664,12 +699,12 @@ def score_trend_v2(trend: dict[str, Any], *, now: datetime | None = None) -> dic
     dated_recent = any(
         (
             (published := parse_utc(row.get("published_at"))) is not None
-            and 0 <= (reference - published).days <= 14
+            and 0 <= (reference - published).days <= 21
         )
         for row in supporting
     )
     if not dated_recent:
-        caps.append((45.0, "No evidence published or measured in the current 14-day period: confidence capped at 45."))
+        caps.append((45.0, "No evidence published or measured in the current 21-day period: confidence capped at 45."))
     for cap, message in caps:
         if score > cap:
             score = cap
@@ -692,7 +727,7 @@ def score_trend_v2(trend: dict[str, Any], *, now: datetime | None = None) -> dic
     missing = [
         COMPONENT_LABELS[key]
         for key, value in breakdown.items()
-        if value is None
+        if value is None and COMPONENT_WEIGHTS[key] > 0
     ]
     sources = list(
         dict.fromkeys(
@@ -831,8 +866,10 @@ def apply_hula_opportunity_scores(
                 float(
                     next(
                         (
-                            trend.get("confidence_score")
-                            for trend in updated_trends
+                                trend.get("confidence_score")
+                                or trend.get("score")
+                                or 0
+                                for trend in updated_trends
                             if str(trend.get("id") or trend.get("canonical_slug") or "")
                             == str(row.get("trend_id") or "")
                         ),

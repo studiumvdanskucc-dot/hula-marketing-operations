@@ -1235,19 +1235,46 @@ def score_google_windows(
 
     context_rows = score_google_series(context_series, audit=audit)
     recent_rows = score_google_series(recent_series, audit=audit)
+    context_by_id = {str(row.get("id")): row for row in context_rows}
     recent_by_id = {str(row.get("id")): row for row in recent_rows}
+    ordered_ids = [str(row.get("id")) for row in context_rows]
+    ordered_ids.extend(
+        trend_id for trend_id in recent_by_id if trend_id not in context_by_id
+    )
     output: list[dict[str, Any]] = []
-    for row in context_rows:
-        updated = dict(row)
-        recent = recent_by_id.get(str(row.get("id")))
-        if recent:
-            updated["google_context_score"] = float(row.get("google_score") or 0)
+    for trend_id in ordered_ids:
+        context = context_by_id.get(trend_id)
+        recent = recent_by_id.get(trend_id)
+        updated = dict(context or recent or {})
+        if context and recent:
+            updated["google_context_score"] = float(context.get("google_score") or 0)
             updated["google_recent_score"] = float(recent.get("google_score") or 0)
             updated["google_score"] = round(
-                0.60 * float(row.get("google_score") or 0)
+                0.60 * float(context.get("google_score") or 0)
                 + 0.40 * float(recent.get("google_score") or 0),
                 1,
             )
+        elif recent:
+            # Preserve a usable recent plot when the annual context request
+            # fails independently. The UI labels the 12-month view missing.
+            updated["google_context_score"] = None
+            updated["google_recent_score"] = float(recent.get("google_score") or 0)
+            updated["google_score"] = float(recent.get("google_score") or 0)
+            updated["series"] = []
+            updated["display_series"] = []
+            updated["series_quality"] = {}
+            updated["series_issue"] = "12-month Google context unavailable"
+            updated["chart_ready"] = False
+        else:
+            updated["google_context_score"] = float((context or {}).get("google_score") or 0)
+            updated["google_recent_score"] = None
+            updated["search_momentum_7d"] = None
+            updated["recent_series"] = []
+            updated["recent_display_series"] = []
+            updated["recent_series_quality"] = {}
+            updated["recent_chart_ready"] = False
+
+        if recent:
             updated["search_momentum_7d"] = float(
                 recent.get("search_momentum") or 0
             )
@@ -1258,13 +1285,7 @@ def score_google_windows(
             updated["recent_series_quality"] = dict(
                 recent.get("series_quality") or {}
             )
-        else:
-            updated["google_context_score"] = float(row.get("google_score") or 0)
-            updated["google_recent_score"] = None
-            updated["search_momentum_7d"] = None
-            updated["recent_series"] = []
-            updated["recent_display_series"] = []
-            updated["recent_series_quality"] = {}
+            updated["recent_chart_ready"] = bool(recent.get("chart_ready"))
         output.append(updated)
     return sorted(
         output,
