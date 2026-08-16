@@ -247,7 +247,7 @@ def render_reports(dataset: dict[str, Any], store: OperationalStore, identity: U
     can_approve = identity.role in {Role.APPROVER, Role.ADMINISTRATOR}
     approved = st.checkbox("Mark this export approved for distribution", disabled=not can_approve)
     if not can_approve:
-        st.caption("Only an Approver / Manager or Administrator can mark a report approved.")
+        st.caption("Only the Administrator can mark a report approved.")
     pdf = monthly_report_pdf(dataset, commentary=commentary, approved=approved, version=version)
     csv_bundle = csv_export_bundle(dataset)
     cols = st.columns(2)

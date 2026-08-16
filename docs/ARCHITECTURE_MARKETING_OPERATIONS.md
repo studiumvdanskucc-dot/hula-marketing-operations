@@ -64,18 +64,19 @@ action adapter.
 
 ## Identity and authorization
 
-Demo mode has an explicit role-preview selector. It is not production
-authentication. Production mode uses Supabase Auth and a RLS-protected
-`marketing_members` record. Permissions are enforced in the Python service and
-again by Postgres policies.
+Demo mode takes its access level from `DEMO_DEFAULT_ROLE`; there is no role
+switcher in the application. Production mode uses Supabase Auth and a
+RLS-protected `marketing_members` record. Permissions are enforced in the
+Python service and again by Postgres policies.
 
-Roles:
+Access levels:
 
-- Viewer;
-- Marketing Operator;
-- Paid Media Specialist;
-- Approver / Manager;
-- Administrator.
+- **Viewer** — one read-only overview for leadership and sales;
+- **Administrator** — the sole operational user with full workspace access.
+
+Marketing, paid-media, merchandising, data and review responsibilities remain
+workflow ownership labels. They do not create additional application roles or
+navigation variants.
 
 High-risk requests cannot be second-approved by their requester. Audit records
 have no update/delete policy.
@@ -84,8 +85,9 @@ have no update/delete policy.
 
 `src/marketing_ops/store.py` provides a SQLite operational fallback so the full
 workflow can run offline and in CI. It is clearly a demo/local store. Production
-uses `database/migrations/001_marketing_operations.sql`, Supabase Auth, RLS and
-worker-only privileged credentials.
+uses `database/migrations/001_marketing_operations.sql` followed by
+`002_two_role_access.sql`, Supabase Auth, RLS and worker-only privileged
+credentials.
 
 The existing weekly trend JSON remains a trend cache and is not promoted into
 the Marketing Operations system of record.

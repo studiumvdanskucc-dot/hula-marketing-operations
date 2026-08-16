@@ -9,11 +9,10 @@ APP_PATH = Path(__file__).resolve().parents[2] / "apps" / "marketing_operations.
 
 
 PAGES = [
-    "⌂  Home",
-    "◉  Campaigns",
-    "✦  Content & SEO",
-    "↗  Performance",
-    "⚙  Settings",
+    "Overview",
+    "Work",
+    "Performance",
+    "Settings",
 ]
 
 
@@ -27,6 +26,7 @@ def subnav(app: AppTest, label: str):
 
 def test_all_marketing_pages_render_without_credentials(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("DEMO_MODE", "true")
+    monkeypatch.setenv("DEMO_DEFAULT_ROLE", "Administrator")
     monkeypatch.setenv("MARKETING_DATABASE_PATH", str(tmp_path / "marketing.sqlite3"))
     app = AppTest.from_file(APP_PATH, default_timeout=45).run()
     assert not app.exception
@@ -37,26 +37,32 @@ def test_all_marketing_pages_render_without_credentials(tmp_path, monkeypatch) -
 
 def test_every_consolidated_subview_renders(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("DEMO_MODE", "true")
+    monkeypatch.setenv("DEMO_DEFAULT_ROLE", "Administrator")
     monkeypatch.setenv("MARKETING_DATABASE_PATH", str(tmp_path / "marketing.sqlite3"))
     app = AppTest.from_file(APP_PATH, default_timeout=45).run()
     groups = {
-        "◉  Campaigns": ("Campaign view", ["Workroom", "New campaign", "Approvals", "Experiments"]),
-        "✦  Content & SEO": ("Content view", ["SEO opportunities", "Content studio", "Site & catalogue", "Trend handoff"]),
-        "↗  Performance": ("Performance view", ["Business truth", "Paid media", "Email & local", "Customers & discovery", "Data quality"]),
-        "⚙  Settings": ("Settings view", ["Connections", "Metric definitions", "Reports", "Governance"]),
+        "Work": ("Work view", ["Actions", "Campaigns", "Content & SEO"]),
+        "Performance": ("Performance view", ["Business truth", "Paid media", "Email & local", "Customers & discovery", "Data quality"]),
+        "Settings": ("Settings view", ["Connections", "Metric definitions", "Reports", "Governance"]),
     }
     for page, (label, views) in groups.items():
         navigation(app).set_value(page).run()
         for view in views:
             subnav(app, label).set_value(view).run()
             assert not app.exception, f"{page} / {view}"
+    navigation(app).set_value("Work").run()
+    subnav(app, "Work view").set_value("Content & SEO").run()
+    for view in ["SEO opportunities", "Content studio", "Site & catalogue", "Trend handoff"]:
+        subnav(app, "Content & SEO view").set_value(view).run()
+        assert not app.exception, f"Work / Content & SEO / {view}"
 
 
 def test_reports_and_integrations_expose_honest_controls(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("DEMO_MODE", "true")
+    monkeypatch.setenv("DEMO_DEFAULT_ROLE", "Administrator")
     monkeypatch.setenv("MARKETING_DATABASE_PATH", str(tmp_path / "marketing.sqlite3"))
     app = AppTest.from_file(APP_PATH, default_timeout=45).run()
-    navigation(app).set_value("⚙  Settings").run()
+    navigation(app).set_value("Settings").run()
     subnav(app, "Settings view").set_value("Reports").run()
     downloads = {button.label for button in app.get("download_button")}
     assert "Download management PDF" in downloads
@@ -69,12 +75,27 @@ def test_reports_and_integrations_expose_honest_controls(tmp_path, monkeypatch) 
 
 def test_performance_keeps_source_views_separate(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("DEMO_MODE", "true")
+    monkeypatch.setenv("DEMO_DEFAULT_ROLE", "Administrator")
     monkeypatch.setenv("MARKETING_DATABASE_PATH", str(tmp_path / "marketing.sqlite3"))
     app = AppTest.from_file(APP_PATH, default_timeout=45).run()
-    navigation(app).set_value("↗  Performance").run()
+    navigation(app).set_value("Performance").run()
     markdown = " ".join(item.value for item in app.markdown)
     assert "Checkout count" in markdown or any(metric.label == "Checkout count" for metric in app.metric)
     assert "98,280" not in markdown
     assert "347" not in markdown
     subnav(app, "Performance view").set_value("Data quality").run()
     assert app.get("dataframe")
+
+
+def test_viewer_gets_one_read_only_overview(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DEMO_MODE", "true")
+    monkeypatch.setenv("DEMO_DEFAULT_ROLE", "Viewer")
+    monkeypatch.setenv("MARKETING_DATABASE_PATH", str(tmp_path / "viewer.sqlite3"))
+    app = AppTest.from_file(APP_PATH, default_timeout=45).run()
+    assert not app.exception
+    assert not any(item.label == "Navigation" for item in app.radio)
+    copy = " ".join(item.value for item in app.markdown)
+    assert "HULA performance at a glance" in copy
+    captions = " ".join(item.value for item in app.caption)
+    assert "read-only" in captions.lower()
+    assert not app.button

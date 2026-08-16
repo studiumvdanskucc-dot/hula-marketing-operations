@@ -1,5 +1,18 @@
 # Changelog
 
+## Build 2026.08.16-marketing.3 — Calm Two-Role Commerce UI
+
+- Reduced access to exactly two levels: Administrator and read-only Viewer.
+- Replaced five role simulations with role-aware production navigation.
+- Consolidated campaigns, recommendations, content, SEO, approvals and
+  experiments inside one Administrator Work area without removing capability.
+- Rebuilt the visual layer around a neutral commerce-dashboard canvas, compact
+  headers, concise KPI cards, restrained HULA colour and progressive detail.
+- Added one leadership/sales overview with no mutation, integration or
+  technical-governance controls.
+- Preserved source definitions, attribution separation, reconciliation,
+  read-only integrations, audit history and external-write safety gates.
+
 ## Build 2026.08.06-marketing.2 — Campaign-First Operations UI
 
 - Consolidated twenty small Marketing Operations sidebar items into five

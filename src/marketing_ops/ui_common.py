@@ -161,6 +161,119 @@ def inject_styles() -> None:
         """,
         unsafe_allow_html=True,
     )
+    # Build 2026.08.16-marketing.3: calm commerce-dashboard visual layer.
+    # This intentionally overrides the earlier brand-heavy prototype without
+    # changing its reusable components or business logic.
+    st.markdown(
+        """
+        <style>
+        :root {
+            --pink:#d92f78; --pink-soft:#fbe9f1; --plum:#211c22; --violet:#62536d;
+            --teal:#28745f; --teal-soft:#e8f4ef; --coral:#b94b52; --butter:#fff5dc;
+            --paper:#ffffff; --canvas:#f7f7f5; --line:#e7e5e1; --muted:#706c70;
+        }
+        html, body, [class*="css"] {
+            font-family:Inter,"Avenir Next","Segoe UI",sans-serif;
+            color:var(--plum);
+        }
+        .stApp { background:var(--canvas); }
+        .block-container { max-width:1320px; padding:2rem 2.4rem 5rem; }
+
+        [data-testid="stSidebar"] {
+            background:#fff;
+            border-right:1px solid var(--line);
+            min-width:266px;
+        }
+        [data-testid="stSidebar"] > div:first-child { padding:1.35rem 1rem 1rem; }
+        [data-testid="stSidebar"] img { margin-bottom:.25rem; }
+        .sidebar-brand { margin:0 0 .85rem; }
+        .sidebar-brand h2 { margin:.15rem 0 0; font-size:1.15rem; letter-spacing:-.03em; color:var(--plum); }
+        .sidebar-kicker { font-size:.63rem; letter-spacing:.16em; text-transform:uppercase; color:var(--muted); font-weight:750; }
+        .mode-pill { display:inline-flex; align-items:center; gap:.38rem; border-radius:999px; padding:.36rem .58rem; background:#f4f2ef; color:#625e60; font-size:.67rem; font-weight:700; margin:0 0 .7rem; }
+        .mode-pill.live { background:var(--teal-soft); color:#1c654f; }
+        .mode-dot { width:6px; height:6px; border-radius:50%; background:currentColor; }
+        .account-card { display:flex; flex-direction:column; gap:.1rem; padding:.72rem .78rem; margin:0 0 .9rem; border:1px solid var(--line); border-radius:12px; background:#faf9f7; }
+        .account-card strong { color:var(--plum); font-size:.78rem; }
+        .account-card span { color:var(--muted); font-size:.67rem; }
+        [data-testid="stSidebar"] [role="radiogroup"] { gap:.18rem; }
+        [data-testid="stSidebar"] [role="radiogroup"] label {
+            padding:.68rem .72rem; border:1px solid transparent; border-radius:10px; transition:none;
+        }
+        [data-testid="stSidebar"] [role="radiogroup"] label:hover { background:#f7f5f3; border-color:transparent; transform:none; }
+        [data-testid="stSidebar"] [role="radiogroup"] label:has(input:checked) {
+            background:var(--pink-soft); border-color:#f4cfdf; box-shadow:none;
+        }
+        [data-testid="stSidebar"] [role="radiogroup"] label:has(input:checked) p { color:#9c2459 !important; }
+        [data-testid="stSidebar"] [role="radiogroup"] label p { font-size:.86rem; font-weight:650; color:#4c484b; }
+        .static-nav { padding:.68rem .72rem; border-radius:10px; font-size:.86rem; font-weight:650; color:#4c484b; }
+        .static-nav.active { background:var(--pink-soft); border:1px solid #f4cfdf; color:#9c2459; }
+        .sidebar-spacer { height:2.2rem; }
+        .safety-note { display:flex; gap:.55rem; align-items:flex-start; padding:.7rem .75rem; border:1px solid var(--line); border-radius:11px; background:#faf9f7; color:var(--muted); font-size:.64rem; line-height:1.45; }
+        .safety-note strong { color:#4d494b; }
+        .safety-dot { flex:0 0 auto; width:7px; height:7px; margin-top:.24rem; border-radius:50%; background:var(--teal); }
+
+        .hero-panel { background:transparent; color:var(--plum); border-radius:0; padding:.1rem 0 .85rem; margin:0 0 .55rem; box-shadow:none; overflow:visible; }
+        .hero-panel:after { display:none; }
+        .ops-eyebrow { color:var(--pink); font-size:.64rem; letter-spacing:.13em; margin-bottom:.4rem; }
+        .ops-title { color:var(--plum); font-size:clamp(1.9rem,3vw,2.65rem); font-weight:690; letter-spacing:-.045em; line-height:1.08; margin:0 0 .42rem; max-width:1000px; }
+        .ops-subtitle { color:var(--muted); line-height:1.5; margin:0; font-size:.9rem; max-width:850px; }
+        .data-banner { border:1px solid #eadfbe; border-left:0; border-radius:11px; background:#fffaf0; padding:.68rem .82rem; margin:.1rem 0 1.2rem; font-size:.72rem; line-height:1.42; color:#66552a; }
+        .data-banner.live { border-color:#cce3da; border-left:0; background:#f1f8f5; color:#255f4e; }
+
+        .section-label { font-size:.61rem; letter-spacing:.12em; color:#969095; margin:1.8rem 0 .3rem; }
+        .section-title { font-size:1.28rem; letter-spacing:-.025em; font-weight:680; color:var(--plum); margin:0 0 .85rem; }
+        .section-copy { color:var(--muted); font-size:.82rem; line-height:1.5; margin:-.35rem 0 .9rem; max-width:760px; }
+
+        .kpi-card { position:relative; min-height:132px; border:1px solid var(--line); border-radius:14px; padding:.92rem 1rem; background:#fff; box-shadow:0 2px 10px rgba(32,28,34,.025); }
+        .kpi-card.pink,.kpi-card.violet,.kpi-card.teal,.kpi-card.coral { border-top:1px solid var(--line); }
+        .kpi-card:before { content:""; position:absolute; left:0; top:22px; width:3px; height:34px; border-radius:0 3px 3px 0; background:#b7b2b5; }
+        .kpi-card.pink:before { background:var(--pink); }
+        .kpi-card.violet:before { background:var(--violet); }
+        .kpi-card.teal:before { background:var(--teal); }
+        .kpi-card.coral:before { background:var(--coral); }
+        .kpi-label { color:#747074; font-size:.71rem; font-weight:650; }
+        .kpi-source { width:18px; height:18px; display:grid; place-items:center; padding:0; border-radius:50%; background:#f3f1ef; color:#777176; font-size:.6rem; font-weight:800; text-transform:none; cursor:help; }
+        .kpi-value { margin:.62rem 0 .22rem; color:var(--plum); font-size:clamp(1.55rem,2vw,2rem); font-weight:700; letter-spacing:-.04em; }
+        .kpi-delta { min-height:1rem; color:var(--teal); font-size:.68rem; font-weight:650; }
+        .kpi-delta.warn { color:#a74b3d; }
+        .kpi-definition { display:none; }
+
+        .signal-head { font-size:.98rem; font-weight:680; letter-spacing:-.018em; margin:.15rem 0 .42rem; color:var(--plum); }
+        .signal-meta { font-size:.61rem; color:#878187; letter-spacing:.07em; font-weight:700; }
+        .signal-critical,.signal-high,.signal-medium,.signal-low,.signal-info { padding-left:.75rem; }
+        .signal-critical { border-left:3px solid #b83c4b; }
+        .signal-high { border-left:3px solid var(--pink); }
+        .signal-medium { border-left:3px solid #c58723; }
+        .signal-low,.signal-info { border-left:3px solid var(--teal); }
+        .plain-box,.trust-row,.scope-card { border-radius:13px; border-color:var(--line); box-shadow:none; }
+        .scope-card { min-height:126px; }
+        .scope-icon { background:#f3f1ef; color:#6c656a; }
+        .campaign-hero { color:var(--plum); background:#fff; border:1px solid var(--line); border-radius:14px; padding:1rem 1.1rem; margin:.55rem 0 .9rem; }
+        .campaign-hero h3 { color:var(--plum); font-size:1.22rem; }
+        .campaign-hero p { color:var(--muted); }
+        .campaign-meta span { color:#5e585d; background:#f6f4f2; border-color:#e8e4e1; }
+
+        [data-testid="stMetric"] { border:1px solid var(--line); border-radius:13px; padding:.85rem .95rem; background:#fff; min-height:105px; }
+        [data-testid="stMetricLabel"] p { color:#777276; font-size:.68rem; font-weight:650; }
+        [data-testid="stMetricValue"] { font-weight:690; letter-spacing:-.035em; color:var(--plum); }
+        div[data-testid="stVerticalBlockBorderWrapper"] { border-radius:14px; border-color:var(--line); background:#fff; box-shadow:none; }
+        [data-testid="stTabs"] [data-baseweb="tab-list"] { gap:.2rem; background:#efeeeb; border-radius:11px; padding:.24rem; }
+        [data-testid="stTabs"] [data-baseweb="tab"] { border-radius:8px; padding:.48rem .72rem; color:#6b666a; font-size:.78rem; font-weight:650; }
+        [data-testid="stTabs"] [aria-selected="true"] { background:#fff; color:var(--plum); box-shadow:0 1px 4px rgba(32,28,34,.08); }
+        div[role="radiogroup"]:not([data-testid="stSidebar"] *) { gap:.25rem; }
+        .stButton > button,.stDownloadButton > button { border-radius:10px !important; min-height:2.45rem; border:1px solid #3d373b; font-weight:650; color:#3d373b; background:#fff; }
+        .stButton > button[kind="primary"] { background:#2c252a; color:#fff; border-color:#2c252a; }
+        .stButton > button:hover,.stDownloadButton > button:hover { border-color:var(--pink); color:var(--pink); box-shadow:none; }
+        [data-testid="stDataFrame"] { border:1px solid var(--line); border-radius:11px; overflow:hidden; }
+        [data-testid="stExpander"] { border-color:var(--line); border-radius:11px; background:#fff; }
+        footer,#MainMenu,[data-testid="stToolbar"],[data-testid="stAppDeployButton"],[data-testid="stDecoration"] { visibility:hidden; }
+        header[data-testid="stHeader"] { background:transparent; }
+        @media (max-width:980px) { .block-container { padding:1.4rem 1.15rem 4rem; } }
+        @media (max-width:780px) { .ops-title { font-size:1.9rem; } .hero-panel { padding:.1rem 0 .65rem; } }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def page_header(eyebrow: str, title: str, subtitle: str) -> None:
@@ -187,11 +300,40 @@ def section_copy(copy: str) -> None:
 def data_banner(meta: dict[str, Any]) -> None:
     mode = str(meta.get("mode", "demo"))
     css = "live" if mode == DataMode.LIVE.value else ""
+    notice = str(meta.get("notice", ""))
     st.markdown(
-        f'<div class="data-banner {css}"><strong>{html.escape(mode.upper())} DATA · {html.escape(str(meta.get("period", "")))}</strong><br>'
-        f'{html.escape(str(meta.get("notice", "")))} Last updated: {html.escape(str(meta.get("generated_at", "Unknown")))}.</div>',
+        f'<div class="data-banner {css}" title="{html.escape(notice, quote=True)}">'
+        f'<strong>{html.escape(mode.upper())} DATA</strong> &nbsp;·&nbsp; {html.escape(str(meta.get("period", "")))}'
+        f' &nbsp;·&nbsp; Updated {html.escape(str(meta.get("generated_at", "Unknown")))}</div>',
         unsafe_allow_html=True,
     )
+
+
+def reporting_controls(meta: dict[str, Any], *, key: str) -> None:
+    """Compact report controls moved out of the sidebar."""
+
+    current = default_date_range()
+    comparison = "Previous period"
+    cols = st.columns([2.2, 1.15, 1.15])
+    with cols[0]:
+        st.caption(f"Reporting period · {meta.get('period', 'Not selected')}")
+        st.caption("HKD · Hong Kong time")
+    with cols[1]:
+        st.date_input(
+            "Date range",
+            value=current,
+            key=f"{key}_dates",
+            help="The fixture remains fixed to July 2026. Live marts will use this selection.",
+        )
+    with cols[2]:
+        st.selectbox(
+            "Compare",
+            ["Previous period", "Previous month", "Previous year", "No comparison"],
+            index=["Previous period", "Previous month", "Previous year", "No comparison"].index(comparison)
+            if comparison in {"Previous period", "Previous month", "Previous year", "No comparison"}
+            else 0,
+            key=f"{key}_comparison",
+        )
 
 
 def source_badges(*labels: str, mode: str = "fixture") -> None:
@@ -229,11 +371,12 @@ def kpi_card(
 ) -> None:
     safe_tone = tone if tone in {"pink", "violet", "teal", "coral"} else "pink"
     delta_class = " warn" if warning else ""
+    help_text = html.escape(f"Source: {source}. {definition}", quote=True)
     st.markdown(
         f'<div class="kpi-card {safe_tone}">'
         '<div class="kpi-top">'
         f'<div class="kpi-label">{html.escape(label)}</div>'
-        f'<div class="kpi-source">{html.escape(source)}</div>'
+        f'<div class="kpi-source" title="{help_text}" aria-label="{help_text}">i</div>'
         '</div>'
         f'<div class="kpi-value">{html.escape(value)}</div>'
         f'<div class="kpi-delta{delta_class}">{html.escape(delta) if delta else "&nbsp;"}</div>'

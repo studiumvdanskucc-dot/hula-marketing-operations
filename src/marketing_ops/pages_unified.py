@@ -30,9 +30,8 @@ from .ui_common import (
     data_banner,
     dataframe,
     kpi_card,
-    operating_loop,
     page_header,
-    scope_card,
+    reporting_controls,
     section,
     section_copy,
     source_badges,
@@ -98,21 +97,23 @@ def _signal_queue(dataset: dict[str, Any], store: OperationalStore, identity: Us
 
 
 def render_home(dataset: dict[str, Any], store: OperationalStore, identity: UserIdentity, root: Path) -> None:
+    del root  # Trend Intelligence remains available from Work → Content & SEO.
     page_header(
-        "HULA in-house marketing",
-        "One place to decide what happens next.",
-        "Reporting, SEO, content, paid media and approvals now follow one simple operating loop—with the source and limitation visible behind every decision.",
+        "Administrator overview",
+        "HULA at a glance.",
+        "Commercial performance, the few issues that matter now, and the work already moving—without the technical detail unless you open it.",
     )
     data_banner(dataset["meta"])
-    operating_loop()
+    reporting_controls(dataset["meta"], key="admin_overview")
 
     values = dataset["executive"]
     critical_findings = sum(row["severity"] == "Critical" for row in dataset["data_quality_findings"])
     open_tasks = [task for task in store.list_tasks() if task.get("status") not in DONE_STATES]
+    pending = store.list_approvals(status="Pending")
     cols = st.columns(4)
     with cols[0]:
         kpi_card(
-            "Commerce revenue",
+            "Total sales",
             _hkd(values["commerce_revenue"]),
             source="Shopify / POS",
             definition="Booked commerce source of truth; attribution claims are kept separate.",
@@ -121,68 +122,136 @@ def render_home(dataset: dict[str, Any], store: OperationalStore, identity: User
         )
     with cols[1]:
         kpi_card(
-            "Paid-media spend",
-            _hkd(values["paid_spend"]),
-            source="Google + Meta",
-            definition="Media cost only. Agency fees and content production are not included.",
-            delta="Read-only operating view",
+            "Orders",
+            f"{values['orders']:,}",
+            source="Shopify / POS",
+            definition="Included orders under the current commerce definition.",
+            delta=f"AOV {_hkd(values['aov'])}",
             tone="pink",
         )
     with cols[2]:
         kpi_card(
-            "Open owned work",
-            str(len(open_tasks)),
-            source="Workboard",
-            definition="Tasks not completed or cancelled, with an owner and due date.",
-            delta=f"{len(store.list_approvals(status='Pending'))} decision(s) awaiting approval",
+            "Paid-media spend",
+            _hkd(values["paid_spend"]),
+            source="Google + Meta",
+            definition="Media cost only. Platform-attributed value remains separate from booked revenue.",
+            delta=f"Platform ROAS {values['blended_roas']:.2f}x",
             tone="teal",
         )
     with cols[3]:
         kpi_card(
-            "Measurement status",
-            "Needs review" if critical_findings else "Reconciled",
-            source="Control layer",
-            definition="Executive data is trusted only after the documented reconciliation gates pass.",
-            delta=f"{critical_findings} critical issue(s) in the supplied report",
+            "Open actions",
+            str(len(open_tasks)),
+            source="Workboard",
+            definition="Tasks not completed or cancelled, with a named owner and due date.",
+            delta=f"{len(pending)} awaiting approval · {critical_findings} data warning(s)",
             tone="coral",
-            warning=bool(critical_findings),
+            warning=bool(critical_findings or pending),
         )
 
-    section("What deserves attention", "Today")
-    section_copy("The app turns evidence into owned work. It does not silently change a budget, publish an article or send an email.")
-    _signal_queue(dataset, store, identity, limit=4)
+    section("Performance snapshot", "Sales")
+    left, right = st.columns([1.85, 1])
+    with left:
+        stores = pd.DataFrame(dataset["stores"])
+        fig = px.bar(
+            stores,
+            x="location",
+            y="revenue",
+            color="location",
+            color_discrete_sequence=PALETTE,
+            text_auto=".3s",
+        )
+        fig.update_traces(textposition="outside")
+        fig.update_layout(showlegend=False)
+        st.plotly_chart(_plot_style(fig, height=300), width="stretch")
+    with right:
+        st.markdown("**Customer pulse**")
+        c1, c2 = st.columns(2)
+        with c1:
+            st.metric("New customers", f"{values['new_customers']:,}")
+            st.metric("Repeat revenue", f"{values['repeat_revenue_share']:.1f}%")
+        with c2:
+            st.metric("Repeat customers", f"{values['repeat_customers']:,}")
+            st.metric("Realized CLV", f"HK${values['historical_realized_clv'] / 1_000:.1f}k")
+        st.caption("Customer metrics use Shopify commerce definitions. Platform attribution is not added to sales.")
+
+    section("Priority actions", "Today")
+    section_copy("Only the highest-impact signals appear here. Open Work for evidence, ownership, approvals and the full queue.")
+    _signal_queue(dataset, store, identity, limit=3)
 
     campaigns = store.list_campaigns()
-    section("Campaigns in motion", "One accountable plan")
+    section("Work in motion", "Campaigns")
     if not campaigns:
-        st.info("Create the first campaign in Campaigns. The app will generate a channel-specific checklist automatically.")
+        st.info("No campaign is in progress. Create one from Work when it has a clear commercial objective.")
     else:
-        for campaign in campaigns[:3]:
+        rows = []
+        for campaign in campaigns[:4]:
             tasks = campaign_tasks(store, campaign["id"])
             readiness = readiness_summary(tasks)
-            with st.container(border=True):
-                cols = st.columns([3.6, 1, 1, 1])
-                with cols[0]:
-                    st.subheader(campaign["name"])
-                    st.caption(campaign["objective"])
-                    source_badges(*campaign["channels"], mode="fixture")
-                with cols[1]:
-                    st.metric("Readiness", f"{readiness['pct']}%")
-                with cols[2]:
-                    st.metric("Open steps", max(readiness["total"] - readiness["completed"], 0) if readiness["total"] else "—")
-                with cols[3]:
-                    st.metric("Status", campaign["status"])
+            rows.append(
+                {
+                    "Campaign": campaign["name"],
+                    "Market": campaign["geography"],
+                    "Status": campaign["status"],
+                    "Readiness": f"{readiness['pct']}%",
+                    "Owner": campaign["owner"],
+                }
+            )
+        dataframe(rows, height=220)
 
-    section("What this replaces", "In-house coverage")
+
+def render_viewer_overview(dataset: dict[str, Any], identity: UserIdentity) -> None:
+    """Single, deliberately read-only view for HULA leadership and sales."""
+
+    page_header(
+        "Business overview",
+        "HULA performance at a glance.",
+        "Sales, customers and the most important changes—without campaign controls, integrations or technical administration.",
+    )
+    data_banner(dataset["meta"])
+    reporting_controls(dataset["meta"], key="viewer_overview")
+    values = dataset["executive"]
     cols = st.columns(4)
     with cols[0]:
-        scope_card("01", "Reporting & insight", "Built", "Commerce truth, channel views, anomalies, reconciliation and management export.")
+        kpi_card("Total sales", _hkd(values["commerce_revenue"]), source="Shopify / POS", definition="Booked commerce source of truth.", delta=f"{values['yoy_pct']:+.1f}% year on year", tone="violet")
     with cols[1]:
-        scope_card("02", "SEO & blog operations", "Built", "Opportunity queue, controlled briefs, drafts, evidence checks and measurement.")
+        kpi_card("Orders", f"{values['orders']:,}", source="Shopify / POS", definition="Included commerce orders.", delta=f"AOV {_hkd(values['aov'])}", tone="pink")
     with cols[2]:
-        scope_card("03", "Paid-media operations", "Specialist controlled", "Monitoring, pacing, fatigue and recommendations; your paid-ads expert approves changes.")
+        kpi_card("New customers", f"{values['new_customers']:,}", source="Shopify", definition="Customers whose first included order is in the period.", delta=f"{values['repeat_customers']:,} returning", tone="teal")
     with cols[3]:
-        scope_card("04", "Automation", "Guardrailed", "Signals become tasks and checklists automatically; live external writes remain off until approved.")
+        kpi_card("Repeat revenue", f"{values['repeat_revenue_share']:.1f}%", source="Shopify", definition="Share of revenue from returning customers.", delta=f"Realized CLV {_hkd(values['historical_realized_clv'])}", tone="coral")
+
+    section("Sales by location", "Commerce")
+    left, right = st.columns([1.75, 1])
+    with left:
+        stores = pd.DataFrame(dataset["stores"])
+        fig = px.bar(stores, x="location", y="revenue", color="location", color_discrete_sequence=PALETTE, text_auto=".3s")
+        fig.update_traces(textposition="outside")
+        fig.update_layout(showlegend=False)
+        st.plotly_chart(_plot_style(fig, height=305), width="stretch")
+    with right:
+        st.markdown("**Online store**")
+        online = dataset["online_summary"]
+        c1, c2 = st.columns(2)
+        with c1:
+            st.metric("Sales", f"HK${online['revenue'] / 1_000:,.0f}k")
+            st.metric("Orders", f"{online['orders']:,}")
+        with c2:
+            st.metric("Add to carts", f"{online['add_to_carts']:,}")
+            st.metric("Conversion", f"{online['conversion_rate_pct']:.2f}%")
+        st.caption("The location table currently has an unresolved reconciliation difference. The Administrator view contains the evidence.")
+
+    section("What needs attention", "Three items")
+    for signal in detect_business_signals(dataset)[:3]:
+        with st.container(border=True):
+            left, right = st.columns([3.2, 1])
+            with left:
+                st.markdown(f"**{signal.title}**")
+                st.caption(signal.why_it_matters)
+            with right:
+                st.caption(f"{signal.severity.value} · {signal.owner_role.value}")
+                st.write(signal.recommended_action)
+    st.caption(f"Signed in as {identity.display_name} · Viewer. This page is read-only.")
 
 
 def _campaign_hero(campaign: dict[str, Any]) -> None:
@@ -235,7 +304,7 @@ def _campaign_workroom(store: OperationalStore, identity: UserIdentity) -> None:
                 st.success(f"Campaign workboard ready with {len(set(created))} owned steps.")
                 st.rerun()
         else:
-            st.caption("A Marketing Operator or Manager can create the checklist.")
+            st.caption("Only the Administrator can create the checklist.")
         return
 
     dataframe(
@@ -374,6 +443,98 @@ def _experiments(dataset: dict[str, Any], store: OperationalStore, identity: Use
         if submitted and name.strip() and hypothesis.strip():
             experiment_id = store.create_experiment(identity, name=name, hypothesis=hypothesis, affected_entity=entity, baseline_metric=baseline, target_metric=target, audience=audience, control_description=control, variant_description=variant, confidence_limitation="Directional until the pre-agreed sample and measurement window are reached.", owner=identity.display_name)
             st.success(f"Experiment created · {experiment_id[:8]}")
+
+
+def _task_workboard(store: OperationalStore, identity: UserIdentity) -> None:
+    tasks = store.list_tasks()
+    section("Owned work", "Workboard")
+    dataframe(
+        [
+            {
+                "Task": row["title"],
+                "Area": row["problem_type"],
+                "Priority": row["severity"],
+                "Owner": row["owner"],
+                "Due": row["due_date"],
+                "Status": row["status"],
+            }
+            for row in tasks
+        ],
+        height=310,
+    )
+    if not tasks or not has_permission(identity.role, Permission.MANAGE_TASKS):
+        return
+    with st.expander("Update a task"):
+        labels = {f"{row['title']} · {row['status']}": row for row in tasks}
+        selected = labels[st.selectbox("Task", list(labels), key="work_task_select")]
+        allowed = list(TaskStatus)
+        if identity.demo:
+            allowed = [item for item in allowed if item not in {TaskStatus.APPROVED, TaskStatus.SCHEDULED, TaskStatus.IMPLEMENTED}]
+        status = st.selectbox("Status", allowed, format_func=lambda item: item.value, key="work_task_status")
+        rejection_reason = st.text_input("Reason", key="work_task_reason") if status is TaskStatus.REJECTED else ""
+        if st.button("Save task", type="primary", key="work_task_save"):
+            try:
+                store.update_task_status(identity, selected["id"], status, rejection_reason=rejection_reason)
+                st.success("Task updated.")
+                st.rerun()
+            except (ValueError, PermissionError) as exc:
+                st.error(str(exc))
+
+
+def _work_actions(dataset: dict[str, Any], store: OperationalStore, identity: UserIdentity) -> None:
+    signals = detect_business_signals(dataset)
+    tasks = store.list_tasks()
+    open_tasks = [row for row in tasks if row.get("status") not in DONE_STATES]
+    pending = store.list_approvals(status="Pending")
+    cols = st.columns(3)
+    with cols[0]:
+        kpi_card("Priority signals", str(len([item for item in signals if item.severity.value in {"Critical", "High"}])), source="Rules engine", definition="Deterministic critical and high-priority signals.", delta="Ranked by impact and confidence", tone="coral", warning=True)
+    with cols[1]:
+        kpi_card("Open tasks", str(len(open_tasks)), source="Workboard", definition="Tasks not completed or cancelled.", delta="Every accepted item keeps an owner", tone="violet")
+    with cols[2]:
+        kpi_card("Awaiting approval", str(len(pending)), source="Approval log", definition="Pending human decisions; approval never executes an external action in this release.", delta="External actions remain off", tone="teal")
+
+    section("Recommendations", "Prioritized")
+    section_copy("Each recommendation keeps its source, evidence, confidence, proposed action and success measure. Nothing is executed automatically.")
+    _signal_queue(dataset, store, identity, limit=5)
+    _task_workboard(store, identity)
+    with st.expander("Approvals"):
+        _approvals(store, identity)
+    with st.expander("Experiments"):
+        _experiments(dataset, store, identity)
+
+
+def render_work(dataset: dict[str, Any], store: OperationalStore, identity: UserIdentity, root: Path) -> None:
+    if identity.role is not Role.ADMINISTRATOR:
+        st.error("Work is available only to the Administrator.")
+        return
+    page_header(
+        "Administrator workspace",
+        "Turn insight into controlled work.",
+        "Recommendations, campaigns, content, SEO and approvals stay connected here; specialist responsibilities remain workflow labels, not extra application roles.",
+    )
+    data_banner(dataset["meta"])
+    view = _subnav("Work view", ["Actions", "Campaigns", "Content & SEO"], key="work_subnav")
+    if view == "Actions":
+        _work_actions(dataset, store, identity)
+    elif view == "Campaigns":
+        _campaign_workroom(store, identity)
+        with st.expander("Create a campaign"):
+            _new_campaign(store, identity)
+    else:
+        content_view = _subnav(
+            "Content & SEO view",
+            ["SEO opportunities", "Content studio", "Site & catalogue", "Trend handoff"],
+            key="work_content_subnav",
+        )
+        if content_view == "SEO opportunities":
+            _seo_opportunities(dataset, store, identity)
+        elif content_view == "Content studio":
+            _content_studio(store, identity)
+        elif content_view == "Site & catalogue":
+            _site_catalogue(dataset, store, identity)
+        else:
+            _trend_handoff(dataset, store, identity, root)
 
 
 def render_campaigns(dataset: dict[str, Any], store: OperationalStore, identity: UserIdentity) -> None:
@@ -523,7 +684,7 @@ def _site_catalogue(dataset: dict[str, Any], store: OperationalStore, identity: 
             for row in dataset["technical_issues"]:
                 task_ids.append(store.create_task(identity, title=row["issue"], description=row["evidence"], problem_type="Technical SEO", source_system="Site audit fixture", evidence=row, severity=row["severity"], recommended_action=row["action"], owner=row["owner"], due_date=due, deduplication_key=f"technical-seo:{row['issue'].lower().replace(' ', '-')}"[:160], data_mode="fixture"))
             for row in dataset["catalogue_issues"]:
-                task_ids.append(store.create_task(identity, title=f"Catalogue: {row['product']} — {row['issue']}", description=row["recommendation"], problem_type="Catalogue SEO", source_system="Shopify fixture", evidence=row, severity="High" if "unavailable" in row["issue"].lower() else "Medium", recommended_action=row["recommendation"], owner="Marketing Operator", due_date=due, deduplication_key=f"catalogue-seo:{row['product'].lower().replace(' ', '-')}:{row['issue'].lower().replace(' ', '-')}"[:160], data_mode="fixture"))
+                task_ids.append(store.create_task(identity, title=f"Catalogue: {row['product']} — {row['issue']}", description=row["recommendation"], problem_type="Catalogue SEO", source_system="Shopify fixture", evidence=row, severity="High" if "unavailable" in row["issue"].lower() else "Medium", recommended_action=row["recommendation"], owner="Marketing", due_date=due, deduplication_key=f"catalogue-seo:{row['product'].lower().replace(' ', '-')}:{row['issue'].lower().replace(' ', '-')}"[:160], data_mode="fixture"))
             st.success(f"Priority workboard ready with {len(set(task_ids))} owned fixes. Nothing was changed in Shopify.")
 
 
@@ -693,11 +854,12 @@ def _quality(dataset: dict[str, Any]) -> None:
 
 def render_performance(dataset: dict[str, Any], store: OperationalStore, identity: UserIdentity) -> None:
     page_header(
-        "Performance & measurement",
-        "A beautiful dashboard is useful only when its numbers mean something.",
-        "Booked commerce, analytics and platform attribution stay separate. Every metric shows its source, scope, window and limitation before it informs a campaign.",
+        "Performance",
+        "Explore the numbers behind the overview.",
+        "Commerce, customers and channel attribution remain separate, with definitions and reconciliation available when you need them.",
     )
     data_banner(dataset["meta"])
+    reporting_controls(dataset["meta"], key="performance")
     view = _subnav("Performance view", ["Business truth", "Paid media", "Email & local", "Customers & discovery", "Data quality"], key="performance_subnav")
     if view == "Business truth":
         _business_truth(dataset)
@@ -749,7 +911,7 @@ def _reports(dataset: dict[str, Any], identity: UserIdentity) -> None:
     section("Management report", "Structured, not screenshots")
     commentary = st.text_area("Executive commentary", value="July performance must remain a draft baseline until location revenue, channel coverage and order allocation are reconciled. Platform attribution is shown separately from booked commerce.", height=140, key="unified_report_commentary")
     version = st.text_input("Report version", value="July 2026 · Measurement-corrected draft", key="unified_report_version")
-    can_approve = identity.role in {Role.APPROVER, Role.ADMINISTRATOR}
+    can_approve = identity.role is Role.ADMINISTRATOR
     approved = st.checkbox("Approved for distribution", disabled=not can_approve, key="unified_report_approved")
     pdf = monthly_report_pdf(dataset, commentary=commentary, approved=approved, version=version)
     csv_bundle = csv_export_bundle(dataset)
@@ -762,7 +924,7 @@ def _reports(dataset: dict[str, Any], identity: UserIdentity) -> None:
 
 
 def _governance(store: OperationalStore) -> None:
-    section("Role permissions", "Separation of duties")
+    section("Access permissions", "Two access levels")
     dataframe(permission_matrix_rows(), height=390)
     section("Audit history", "Who decided what")
     events = store.list_audit_events()
@@ -776,10 +938,13 @@ def render_settings(
     settings: MarketingSettings,
     connectors: dict[str, Connector],
 ) -> None:
+    if identity.role is not Role.ADMINISTRATOR:
+        st.error("Settings are available only to the Administrator.")
+        return
     page_header(
-        "Settings & governance",
-        "Connect the sources. Define the numbers. Keep control.",
-        "Credentials, report definitions, exports, permissions and the audit trail live here—outside the daily campaign workspace.",
+        "Settings",
+        "Connections, definitions and control.",
+        "Manage data sources, metric contracts, reports, access and the audit history away from the daily workspace.",
     )
     data_banner(dataset["meta"])
     view = _subnav("Settings view", ["Connections", "Metric definitions", "Reports", "Governance"], key="settings_subnav")

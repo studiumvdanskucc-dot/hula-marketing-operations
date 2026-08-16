@@ -27,14 +27,14 @@ provider account, OAuth application and recovery method.
 
 ## Roles
 
-| Capability | Viewer | Operator | Paid specialist | Approver | Admin |
-|---|---:|---:|---:|---:|---:|
-| View approved dashboards | Yes | Yes | Yes | Yes | Yes |
-| Create tasks | — | Yes | Yes | Yes | Yes |
-| Create content | — | Yes | — | Yes | Yes |
-| Review paid proposals | — | — | Yes | Yes | Yes |
-| Decide approvals | — | — | — | Yes | Yes |
-| Configure integrations/roles | — | — | — | — | Yes |
+| Capability | Viewer | Administrator |
+|---|---:|---:|
+| View the business overview | Yes | Yes |
+| Export approved reporting | Yes | Yes |
+| Create or update tasks | — | Yes |
+| Create campaigns and content | — | Yes |
+| Record review and approval decisions | — | Yes |
+| Configure integrations and access | — | Yes |
 
 The complete matrix is implemented in `src/marketing_ops/permissions.py` and
 displayed in the app.
@@ -47,14 +47,16 @@ Recommendation → proposal → validation → permission → before snapshot
 → provider verification → audit → outcome measurement
 ```
 
-High risk requires a second approver. The requester cannot satisfy that second
-approval. Every future adapter also needs an idempotency key and a tested
+High risk still requires an independent second reviewer; the sole Administrator
+cannot satisfy their own second-approval gate. Until a governed second-review
+method and the future action adapter are released, high-risk external actions
+remain blocked. Every future adapter also needs an idempotency key and a tested
 rollback or an explicitly documented no-rollback limitation.
 
 ## Pre-production checklist
 
 - [ ] Invite-only users and named backup owners configured.
-- [ ] RLS migration applied and tested with each role.
+- [ ] Both migrations applied; sole Administrator and Viewer access tested.
 - [ ] Service-role key available only to worker runtime.
 - [ ] All provider permissions reviewed against official current docs.
 - [ ] Secret rotation and revocation exercised.

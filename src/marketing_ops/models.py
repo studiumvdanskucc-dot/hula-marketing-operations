@@ -12,10 +12,23 @@ def utc_now() -> str:
 
 class Role(StrEnum):
     VIEWER = "Viewer"
-    MARKETING_OPERATOR = "Marketing Operator"
-    PAID_MEDIA_SPECIALIST = "Paid Media Specialist"
-    APPROVER = "Approver / Manager"
     ADMINISTRATOR = "Administrator"
+
+    # Compatibility aliases for modules and historical local fixtures created
+    # before the two-access-level redesign. Enum iteration exposes only Viewer
+    # and Administrator; these aliases must never be presented as user roles.
+    MARKETING_OPERATOR = "Administrator"
+    PAID_MEDIA_SPECIALIST = "Administrator"
+    APPROVER = "Administrator"
+
+
+class Responsibility(StrEnum):
+    """Workflow ownership labels, deliberately separate from access roles."""
+
+    ADMINISTRATOR = "Administrator"
+    MARKETING = "Marketing"
+    PAID_MEDIA_SPECIALIST = "Paid-media specialist"
+    DATA_OWNER = "Data owner"
 
 
 class Permission(StrEnum):
@@ -135,7 +148,7 @@ class Signal:
     confidence: float
     data_period: str
     data_freshness: str
-    owner_role: Role
+    owner_role: Responsibility
     deduplication_key: str
     expiry_date: str | None = None
     data_mode: DataMode = DataMode.DEMO

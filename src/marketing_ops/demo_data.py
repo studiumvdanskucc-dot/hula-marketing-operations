@@ -187,8 +187,8 @@ def _build() -> dict[str, Any]:
         {"name": "Post-Purchase", "type": "Flow", "recipients": 912, "open_rate": 64.3, "click_rate": 4.8, "orders": 21, "revenue": 92_110.0, "revenue_per_recipient": 100.99, "status": "Live"},
     ]
     technical_issues = [
-        {"severity": "High", "issue": "Broken product links in editorial", "affected_urls": 7, "evidence": "Fixture crawl found article links returning 404 or unavailable product templates.", "action": "Replace with available collection links and add a weekly availability check.", "owner": "Marketing Operator"},
-        {"severity": "High", "issue": "Duplicate meta descriptions", "affected_urls": 19, "evidence": "The same description appears on several designer collections.", "action": "Create unique collection copy based on inventory and search intent.", "owner": "Marketing Operator"},
+        {"severity": "High", "issue": "Broken product links in editorial", "affected_urls": 7, "evidence": "Fixture crawl found article links returning 404 or unavailable product templates.", "action": "Replace with available collection links and add a weekly availability check.", "owner": "Marketing"},
+        {"severity": "High", "issue": "Duplicate meta descriptions", "affected_urls": 19, "evidence": "The same description appears on several designer collections.", "action": "Create unique collection copy based on inventory and search intent.", "owner": "Marketing"},
         {"severity": "Medium", "issue": "Missing image alt text", "affected_urls": 42, "evidence": "Product/editorial images have blank alt attributes in the fixture crawl.", "action": "Draft descriptive, non-keyword-stuffed alt text; review before Shopify update.", "owner": "Content Editor"},
         {"severity": "Medium", "issue": "Slow mobile LCP on product template", "affected_urls": 12, "evidence": "Fixture PageSpeed mobile LCP is 4.1 seconds on priority product URLs.", "action": "Audit hero image size and theme blocking resources with the Shopify developer.", "owner": "Technical Partner"},
     ]
@@ -274,9 +274,9 @@ def _build() -> dict[str, Any]:
         ],
         "reconciliation": reconciliation,
         "report_actions": [
-            {"title": "Prioritise top-impression SEO snippet fixes", "owner": "Marketing Operator", "due": "2026-08-14", "status": "Planned"},
-            {"title": "Refresh August Meta creative", "owner": "Paid Media Specialist", "due": "2026-08-10", "status": "In progress"},
-            {"title": "Confirm Singapore campaign launch", "owner": "Approver / Manager", "due": "2026-08-12", "status": "Awaiting decision"},
+            {"title": "Prioritise top-impression SEO snippet fixes", "owner": "Marketing", "due": "2026-08-14", "status": "Planned"},
+            {"title": "Refresh August Meta creative", "owner": "Paid media", "due": "2026-08-10", "status": "In progress"},
+            {"title": "Confirm Singapore campaign launch", "owner": "Administrator", "due": "2026-08-12", "status": "Awaiting decision"},
             {"title": "Resolve store revenue mapping difference", "owner": "Data Owner", "due": "2026-08-09", "status": "Detected"},
         ],
     }

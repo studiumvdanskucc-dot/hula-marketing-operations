@@ -12,7 +12,7 @@ def user(name: str, role: Role) -> UserIdentity:
 
 def test_task_deduplication_and_fixture_action_guard(tmp_path) -> None:
     store = OperationalStore(tmp_path / "ops.sqlite3")
-    operator = user("operator", Role.MARKETING_OPERATOR)
+    operator = user("administrator", Role.ADMINISTRATOR)
     fields = dict(
         title="Fix SEO title",
         description="Evidence",
@@ -34,7 +34,7 @@ def test_task_deduplication_and_fixture_action_guard(tmp_path) -> None:
 
 def test_rejection_requires_reason(tmp_path) -> None:
     store = OperationalStore(tmp_path / "ops.sqlite3")
-    operator = user("operator", Role.MARKETING_OPERATOR)
+    operator = user("administrator", Role.ADMINISTRATOR)
     task = store.create_task(operator, title="Review", description="x", problem_type="Manual", source_system="Internal", evidence={}, severity="Medium", recommended_action="review", owner="operator")
     with pytest.raises(ValueError, match="reason"):
         store.update_task_status(operator, task, TaskStatus.REJECTED)
@@ -44,8 +44,8 @@ def test_rejection_requires_reason(tmp_path) -> None:
 
 def test_second_approval_cannot_be_self_approved(tmp_path) -> None:
     store = OperationalStore(tmp_path / "ops.sqlite3")
-    requester = user("manager-one", Role.APPROVER)
-    other = user("manager-two", Role.APPROVER)
+    requester = user("administrator", Role.ADMINISTRATOR)
+    other = user("independent-reviewer", Role.ADMINISTRATOR)
     approval = store.create_approval(requester, object_type="external_action", object_id="123", summary="Publish", risk_level=RiskLevel.HIGH)
     with pytest.raises(PermissionError, match="requester"):
         store.decide_approval(requester, approval, ApprovalStatus.APPROVED, "I approve")
@@ -62,7 +62,7 @@ def test_viewer_cannot_mutate(tmp_path) -> None:
 
 def test_audit_log_records_workflow_changes(tmp_path) -> None:
     store = OperationalStore(tmp_path / "ops.sqlite3")
-    operator = user("operator", Role.MARKETING_OPERATOR)
+    operator = user("administrator", Role.ADMINISTRATOR)
     task = store.create_task(operator, title="Audit me", description="x", problem_type="Manual", source_system="Internal", evidence={}, severity="Low", recommended_action="x", owner="operator")
     store.update_task_status(operator, task, TaskStatus.IN_PROGRESS)
     actions = [row["action"] for row in store.list_audit_events()]

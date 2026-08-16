@@ -13,7 +13,7 @@ CORE_CHECKLIST: tuple[dict[str, Any], ...] = (
         "stage": "Brief",
         "channel": "Campaign core",
         "task": "Confirm objective, primary KPI and baseline",
-        "owner": "Marketing Operator",
+        "owner": "Marketing",
         "lead_days": 24,
         "gate": True,
         "action": "Write one measurable objective and document the metric source, formula and starting value.",
@@ -22,7 +22,7 @@ CORE_CHECKLIST: tuple[dict[str, Any], ...] = (
         "stage": "Brief",
         "channel": "Campaign core",
         "task": "Verify audience, consent and suppressions",
-        "owner": "Marketing Operator",
+        "owner": "Marketing",
         "lead_days": 22,
         "gate": True,
         "action": "Name the audience, lawful basis/consent treatment and required suppression groups.",
@@ -40,7 +40,7 @@ CORE_CHECKLIST: tuple[dict[str, Any], ...] = (
         "stage": "Measure",
         "channel": "Measurement",
         "task": "Prepare UTMs, conversion checks and reporting view",
-        "owner": "Marketing Operator",
+        "owner": "Marketing",
         "lead_days": 12,
         "gate": True,
         "action": "Create the UTM plan, test conversion events and state the attribution window for every channel.",
@@ -49,7 +49,7 @@ CORE_CHECKLIST: tuple[dict[str, Any], ...] = (
         "stage": "Approve",
         "channel": "Governance",
         "task": "Complete launch review and manager approval",
-        "owner": "Approver / Manager",
+        "owner": "Administrator",
         "lead_days": 3,
         "gate": True,
         "action": "Review final assets, audience, destinations, budget, measurement and rollback plan.",
@@ -58,7 +58,7 @@ CORE_CHECKLIST: tuple[dict[str, Any], ...] = (
         "stage": "Learn",
         "channel": "Measurement",
         "task": "Review results against the agreed baseline",
-        "owner": "Marketing Operator",
+        "owner": "Marketing",
         "after_days": 14,
         "gate": False,
         "action": "Compare source metrics to baseline, document limitations and decide whether to scale, change or stop.",
@@ -71,7 +71,7 @@ CHANNEL_CHECKLIST: dict[str, tuple[dict[str, Any], ...]] = {
         {
             "stage": "Create",
             "task": "Review search intent, structure, negatives and landing-page fit",
-            "owner": "Paid Media Specialist",
+            "owner": "Paid media",
             "lead_days": 14,
             "gate": True,
             "action": "Prepare a read-only recommendation covering brand/non-brand separation, search terms, negatives and landing-page relevance.",
@@ -81,7 +81,7 @@ CHANNEL_CHECKLIST: dict[str, tuple[dict[str, Any], ...]] = {
         {
             "stage": "Create",
             "task": "Prepare creative rotation and verify catalogue availability",
-            "owner": "Paid Media Specialist",
+            "owner": "Paid media",
             "lead_days": 14,
             "gate": True,
             "action": "Provide at least two creative angles, confirm live destinations and define the fatigue threshold.",
@@ -91,7 +91,7 @@ CHANNEL_CHECKLIST: dict[str, tuple[dict[str, Any], ...]] = {
         {
             "stage": "Create",
             "task": "Build email brief, segment logic and suppression checklist",
-            "owner": "Marketing Operator",
+            "owner": "Marketing",
             "lead_days": 12,
             "gate": True,
             "action": "Draft the message, audience rules, exclusions, links and test plan; keep sending disabled until approved.",
@@ -101,7 +101,7 @@ CHANNEL_CHECKLIST: dict[str, tuple[dict[str, Any], ...]] = {
         {
             "stage": "Create",
             "task": "Prepare evidence-backed content and internal links",
-            "owner": "Marketing Operator",
+            "owner": "Marketing",
             "lead_days": 16,
             "gate": True,
             "action": "Create the brief and draft, attach evidence, verify product/authentication claims and plan measurement.",
@@ -111,7 +111,7 @@ CHANNEL_CHECKLIST: dict[str, tuple[dict[str, Any], ...]] = {
         {
             "stage": "Create",
             "task": "Review landing-page message, mobile speed and product availability",
-            "owner": "Marketing Operator",
+            "owner": "Marketing",
             "lead_days": 12,
             "gate": True,
             "action": "Verify the page promise, CTA, mobile experience, links and available inventory before approval.",
@@ -121,7 +121,7 @@ CHANNEL_CHECKLIST: dict[str, tuple[dict[str, Any], ...]] = {
         {
             "stage": "Create",
             "task": "Prepare store listing, staff brief and offline measurement",
-            "owner": "Marketing Operator",
+            "owner": "Marketing",
             "lead_days": 10,
             "gate": True,
             "action": "Confirm opening/location details, store team instructions and a QR/code or survey for offline measurement.",
@@ -131,7 +131,7 @@ CHANNEL_CHECKLIST: dict[str, tuple[dict[str, Any], ...]] = {
         {
             "stage": "Create",
             "task": "Prepare organic social assets and response plan",
-            "owner": "Marketing Operator",
+            "owner": "Marketing",
             "lead_days": 9,
             "gate": False,
             "action": "Draft the channel-native assets, accessibility text, links and moderation/escalation notes.",
@@ -224,4 +224,3 @@ def readiness_summary(tasks: list[dict[str, Any]]) -> dict[str, Any]:
         "pct": round(100 * completed / total) if total else 0,
         "label": "Ready" if total and completed == total and blocked == 0 else "Work in progress" if total else "Checklist not created",
     }
-

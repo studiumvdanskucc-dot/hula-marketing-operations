@@ -1,6 +1,6 @@
 # HULA Marketing Operations first-release status
 
-**Build:** `2026.08.06-marketing.2`  
+**Build:** `2026.08.16-marketing.3`  
 **Data mode:** fixture by default  
 **External writes:** disabled and not implemented
 
@@ -8,9 +8,12 @@
 
 - Independent `apps/marketing_operations.py` entry point.
 - Existing `app.py` retained as Trend Intelligence production entry point.
-- Five integrated Marketing Operations workspaces—Home, Campaigns, Content &
-  SEO, Performance and Settings—with July 2026 report-parity fixtures and
-  visible source/attribution/freshness labels.
+- Two access levels: one Administrator and one read-only Viewer experience.
+- Four Administrator workspaces—Overview, Work, Performance and Settings—with
+  campaigns, content, SEO, recommendations, approvals and experiments retained
+  inside Work.
+- July 2026 report-parity fixtures retain visible source, attribution and
+  freshness labels.
 - Campaign-specific channel checklists that create owned, due-dated work only
   for the channels selected in the campaign.
 - Corrected measurement layer: no unsupported checkout funnel, paid CAC shown
@@ -19,8 +22,8 @@
   success measure.
 - Local/offline tasks, approvals, campaigns, content, experiments, jobs and
   immutable-style audit events.
-- Role/permission matrix and Supabase Auth production adapter.
-- Repeatable Postgres/Supabase foundation migration with RLS policies.
+- Two-role permission matrix and Supabase Auth production adapter.
+- Repeatable Postgres/Supabase foundation plus two-role RLS migration.
 - Read-only Shopify order/refund, GA4 runReport and Search Console connectors.
 - Honest health/configuration shells for Google Ads, Meta, Klaviyo, GBP,
   Merchant Center and PageSpeed.
@@ -29,7 +32,7 @@
   security checklist and deployment guide.
 - Safe defaults: no credentials required, all write flags off, no fake live
   connection.
-- Final verification: 125/125 tests passed; both Streamlit entry points returned
+- Final verification: 126/126 tests passed; both Streamlit entry points returned
   health `ok` and HTTP 200; the interface and four-page PDF passed rendered visual QA.
 
 ## Partially completed
@@ -54,8 +57,8 @@
   actual attribution settings.
 - Signed revenue/order/customer/paid-CAC/CLV/MER definitions and July 2026
   reconciliation rules.
-- Named HULA operator, paid specialist, approver, administrator, privacy owner
-  and backups.
+- Named sole Administrator, Viewer account list, workflow responsibility owners
+  and an independent high-risk review route.
 
 ## Deliberately not implemented
 

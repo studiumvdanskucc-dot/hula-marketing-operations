@@ -15,11 +15,11 @@ repository's declared dependency ranges.
 python -m compileall -q app.py apps src jobs scripts tests
 Result: passed
 
-python -m pytest -q --disable-warnings
-Result: 125 passed in 153.47s
+python -m pytest -q
+Result: 126 passed in 177.40s
 
 Original Trend Intelligence tests: 94
-Marketing Operations tests: 31
+Marketing Operations tests: 32
 
 Trend Intelligence process:
   /_stcore/health = ok
@@ -32,7 +32,8 @@ Marketing Operations process (no credentials; fixture mode):
 
 Marketing Operations coverage includes:
 
-- all five navigation workspaces and every consolidated subview without credentials;
+- all four Administrator workspaces and every consolidated subview without credentials;
+- the single Viewer overview, with no navigation selector or mutation buttons;
 - campaign-checklist selection and idempotent task creation;
 - metric calculations and July reconciliation controls;
 - explicit separation of analytics events from the Shopify Online Store summary;
@@ -47,8 +48,9 @@ Marketing Operations coverage includes:
 
 The management PDF is rendered with Poppler and checked page by page after each
 material report-layout change. The Marketing Operations interface is also
-captured at a 1600 × 1100 desktop viewport for Home, Campaigns and Performance
-to verify the simplified navigation, KPI cards and campaign workroom.
+captured at a 1600 × 1100 desktop viewport for Overview, all three Work views,
+all five Performance views, Connections, Governance and the single Viewer page
+to verify navigation, responsive KPI cards, tables and safety controls.
 
 Tests are offline and use fixtures/mocked HTTP sessions. CI must never perform a
 live write. Production provider contract checks are explicit read-only health

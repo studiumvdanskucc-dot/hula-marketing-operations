@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-from .models import DataMode, Role, Severity, Signal
+from .models import DataMode, Responsibility, Severity, Signal
 
 
 def _signal(
@@ -18,7 +18,7 @@ def _signal(
     entity: str,
     severity: Severity,
     confidence: float,
-    owner: Role,
+    owner: Responsibility,
     *,
     mode: DataMode = DataMode.FIXTURE,
     metadata: dict[str, Any] | None = None,
@@ -71,7 +71,7 @@ def detect_business_signals(dataset: Mapping[str, Any]) -> list[Signal]:
                 "July 2026 commerce reconciliation",
                 Severity.CRITICAL,
                 0.99,
-                Role.APPROVER,
+                Responsibility.DATA_OWNER,
                 metadata={"difference_hkd": difference},
             )
         )
@@ -87,7 +87,7 @@ def detect_business_signals(dataset: Mapping[str, Any]) -> list[Signal]:
                 "Stop presenting the channel chart as a complete revenue split",
                 "The displayed channel rows cover only part of commerce revenue and use attribution windows that can overlap.",
                 "Adding or comparing these rows as mutually exclusive channels can overstate contribution and misdirect budget.",
-                f"Email, Google Ads, Direct and Meta total HK${represented:,.2f}, or {coverage:.2f}% of HK${headline:,.2f} headline revenue; the report states 90 days for email and seven days for Meta.",
+                f"Email, Google Ads, Direct and Meta total HKD {represented:,.2f}, or {coverage:.2f}% of the HKD {headline:,.2f} headline revenue; the report states 90 days for email and seven days for Meta.",
                 "Rename the visual as attribution views, show the window beside every value, and add a clearly labelled unrepresented share without treating it as a fifth channel.",
                 (
                     "Confirm the source and configured window for every channel row.",
@@ -100,7 +100,7 @@ def detect_business_signals(dataset: Mapping[str, Any]) -> list[Signal]:
                 "July 2026 revenue-by-channel chart",
                 Severity.CRITICAL,
                 0.99,
-                Role.APPROVER,
+                Responsibility.DATA_OWNER,
                 metadata={"represented_hkd": represented, "headline_hkd": headline, "coverage_pct": coverage},
             )
         )
@@ -128,7 +128,7 @@ def detect_business_signals(dataset: Mapping[str, Any]) -> list[Signal]:
                 opportunity["page"],
                 Severity.HIGH,
                 0.92,
-                Role.MARKETING_OPERATOR,
+                Responsibility.MARKETING,
                 metadata={"factor_contributions": opportunity.get("factor_contributions"), "score": opportunity.get("score")},
             )
         )
@@ -154,7 +154,7 @@ def detect_business_signals(dataset: Mapping[str, Any]) -> list[Signal]:
                     campaign["campaign"],
                     Severity.HIGH,
                     0.90,
-                    Role.PAID_MEDIA_SPECIALIST,
+                    Responsibility.PAID_MEDIA_SPECIALIST,
                     metadata={"frequency": campaign["frequency"], "ctr": campaign["ctr"], "spend": campaign["spend"]},
                 )
             )
@@ -180,7 +180,7 @@ def detect_business_signals(dataset: Mapping[str, Any]) -> list[Signal]:
                     campaign["campaign"],
                     Severity.HIGH,
                     0.88,
-                    Role.PAID_MEDIA_SPECIALIST,
+                    Responsibility.PAID_MEDIA_SPECIALIST,
                     metadata={"budget_pacing_pct": campaign["budget_pacing_pct"], "roas": campaign["roas"]},
                 )
             )
@@ -206,7 +206,7 @@ def detect_business_signals(dataset: Mapping[str, Any]) -> list[Signal]:
                 item["product"],
                 Severity.CRITICAL,
                 0.95,
-                Role.PAID_MEDIA_SPECIALIST,
+                Responsibility.PAID_MEDIA_SPECIALIST,
             )
         )
 
@@ -231,7 +231,7 @@ def detect_business_signals(dataset: Mapping[str, Any]) -> list[Signal]:
                     location["location"],
                     Severity.MEDIUM,
                     0.85,
-                    Role.MARKETING_OPERATOR,
+                    Responsibility.MARKETING,
                 )
             )
     return sorted(signals, key=lambda item: ({Severity.CRITICAL: 0, Severity.HIGH: 1, Severity.MEDIUM: 2, Severity.LOW: 3, Severity.INFO: 4}[item.severity], -item.confidence))
@@ -265,7 +265,7 @@ def integration_health_signals(
                 provider,
                 Severity.CRITICAL,
                 0.98,
-                Role.ADMINISTRATOR,
+                Responsibility.ADMINISTRATOR,
                 mode=data_mode,
             )
         )

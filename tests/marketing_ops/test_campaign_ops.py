@@ -24,7 +24,7 @@ def test_campaign_checklist_adds_only_selected_channel_work() -> None:
 
 def test_campaign_checklist_creation_is_idempotent(tmp_path) -> None:
     store = OperationalStore(tmp_path / "campaign.sqlite3", seed_demo=False)
-    identity = demo_identity(MarketingSettings(), Role.MARKETING_OPERATOR)
+    identity = demo_identity(MarketingSettings(), Role.ADMINISTRATOR)
     campaign_id = store.create_campaign(
         identity,
         name="September drop",
@@ -41,4 +41,3 @@ def test_campaign_checklist_creation_is_idempotent(tmp_path) -> None:
     assert len(set(first)) == len(first)
     assert set(second) == set(first)
     assert len(campaign_tasks(store, campaign_id)) == len(first)
-

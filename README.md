@@ -108,8 +108,11 @@ python -m streamlit run apps/marketing_operations.py --server.port 8502
 
 It starts in explicit July 2026 report-parity **fixture mode**, needs no live
 credentials, and has every external write disabled. The interface is organised
-into five clear workspaces—Home, Campaigns, Content & SEO, Performance and
-Settings—instead of exposing every internal module as a separate sidebar item.
+around two access levels. The sole Administrator sees Overview, Work,
+Performance and Settings; Viewer accounts for leadership and sales open directly
+into one read-only business overview. Campaigns, Content & SEO, recommendations,
+approvals and experiments remain available inside Work rather than becoming
+separate application roles or a crowded sidebar.
 It includes campaign-specific workboards, tasks/approvals, controlled content,
 deterministic signals, structured PDF/CSV exports, read-only Shopify/GA4/Search
 Console clients, and honest health shells for the remaining platforms.
@@ -122,6 +125,7 @@ customers.
 
 Marketing Operations documentation:
 
+- [capability map](docs/CAPABILITY_MAP.md);
 - [architecture decision](docs/ARCHITECTURE_MARKETING_OPERATIONS.md);
 - [metric dictionary](docs/METRIC_DICTIONARY.md) and
   [attribution guide](docs/ATTRIBUTION_GUIDE.md);
@@ -131,9 +135,9 @@ Marketing Operations documentation:
 - provider setup under [`docs/integrations/`](docs/integrations/SHOPIFY.md);
 - [first-release status](docs/FINAL_STATUS.md).
 
-Seeing **Build 2026.08.06-marketing.2** in the Marketing Operations sidebar
-confirms the simplified, measurement-corrected copy. Trend Intelligence retains
-its independent build number.
+Seeing **Build 2026.08.16-marketing.3** in the Marketing Operations sidebar
+confirms the calm two-role interface. Trend Intelligence retains its independent
+build number and all existing capabilities.
 
 ## Setup order
 

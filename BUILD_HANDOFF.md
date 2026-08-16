@@ -23,12 +23,14 @@ required, and no external write can execute.
 
 ## What is working now
 
-- five integrated workspaces: Home, Campaigns, Content & SEO, Performance and Settings;
+- two access levels: one full Administrator and one read-only Viewer experience;
+- four Administrator workspaces: Overview, Work, Performance and Settings;
+- one Viewer page for leadership and sales, with no technical or mutation controls;
 - campaign-specific channel checklists and owned workboards;
 - agency-report parity fixture with corrected measurement logic and reconciliation;
 - command-centre signals and playbooks, including channel-coverage governance;
 - tasks, approvals, campaigns, content, experiments, jobs and audit history;
-- role/permission preview and Supabase Auth production adapter;
+- role-aware navigation and Supabase Auth production adapter;
 - read-only Shopify, GA4 and Search Console clients;
 - provider setup/health shells for remaining channels;
 - structured PDF and CSV/ZIP monthly export;
@@ -37,10 +39,11 @@ required, and no external write can execute.
 
 ## Verified
 
-- 125/125 tests pass (94 preserved Trend Intelligence + 31 Marketing Operations);
+- 126/126 tests pass (94 preserved Trend Intelligence + 32 Marketing Operations);
 - Trend Intelligence health `ok`, HTTP 200;
 - Marketing Operations health `ok`, HTTP 200 without credentials;
-- Home, Campaigns and Performance passed 1600 × 1100 rendered visual review;
+- all Administrator workspaces/subviews and the single Viewer page passed
+  1600 × 1100 rendered visual review;
 - generated four-page PDF visually rendered and inspected.
 
 ## Honest boundary
@@ -54,3 +57,6 @@ review reply is implemented.
 Start with [`docs/FINAL_STATUS.md`](docs/FINAL_STATUS.md), then follow
 [`docs/MARKETING_OPERATIONS_MANUAL.md`](docs/MARKETING_OPERATIONS_MANUAL.md) and
 the provider guides under [`docs/integrations/`](docs/integrations/SHOPIFY.md).
+The [`capability map`](docs/CAPABILITY_MAP.md) shows where each retained function
+lives in the calmer navigation and which items still require live data or HULA
+business rules.

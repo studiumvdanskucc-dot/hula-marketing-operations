@@ -93,7 +93,7 @@ def demo_identity(settings: MarketingSettings, role: Role | None = None) -> User
         try:
             selected_role = Role(settings.default_role)
         except ValueError:
-            selected_role = Role.MARKETING_OPERATOR
+            selected_role = Role.ADMINISTRATOR
     return UserIdentity(
         user_id=f"demo:{selected_role.value.lower().replace(' ', '-')}",
         email="demo@local.invalid",

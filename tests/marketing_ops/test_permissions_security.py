@@ -9,21 +9,23 @@ from src.marketing_ops.security import redact_customer_text, redact_mapping, red
 
 
 def test_role_permissions_are_explicit() -> None:
+    assert list(Role) == [Role.VIEWER, Role.ADMINISTRATOR]
     assert has_permission(Role.VIEWER, Permission.VIEW_DASHBOARDS)
     assert not has_permission(Role.VIEWER, Permission.MANAGE_TASKS)
-    assert has_permission(Role.PAID_MEDIA_SPECIALIST, Permission.REVIEW_PAID_MEDIA)
-    assert has_permission(Role.APPROVER, Permission.DECIDE_APPROVAL)
+    assert has_permission(Role.ADMINISTRATOR, Permission.REVIEW_PAID_MEDIA)
+    assert has_permission(Role.ADMINISTRATOR, Permission.DECIDE_APPROVAL)
     assert has_permission(Role.ADMINISTRATOR, Permission.MANAGE_ROLES)
     with pytest.raises(PermissionError):
         require_permission(Role.VIEWER, Permission.MANAGE_CONTENT)
 
 
 def test_risk_execution_is_limited_by_role() -> None:
-    assert can_execute_risk(Role.MARKETING_OPERATOR, RiskLevel.LOW)
-    assert not can_execute_risk(Role.MARKETING_OPERATOR, RiskLevel.MEDIUM)
-    assert can_execute_risk(Role.PAID_MEDIA_SPECIALIST, RiskLevel.MEDIUM)
-    assert not can_execute_risk(Role.PAID_MEDIA_SPECIALIST, RiskLevel.HIGH)
-    assert can_execute_risk(Role.APPROVER, RiskLevel.HIGH)
+    assert not can_execute_risk(Role.VIEWER, RiskLevel.LOW)
+    assert not can_execute_risk(Role.VIEWER, RiskLevel.MEDIUM)
+    assert not can_execute_risk(Role.VIEWER, RiskLevel.HIGH)
+    assert can_execute_risk(Role.ADMINISTRATOR, RiskLevel.LOW)
+    assert can_execute_risk(Role.ADMINISTRATOR, RiskLevel.MEDIUM)
+    assert can_execute_risk(Role.ADMINISTRATOR, RiskLevel.HIGH)
 
 
 def test_any_external_enable_flag_triggers_write_warning() -> None:

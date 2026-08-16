@@ -68,7 +68,7 @@ def render_campaign_planner(dataset: dict[str, Any], store: OperationalStore, id
         {"Control": "Audience consent and suppressions", "Owner": "Marketing operator", "Gate": "Required"},
         {"Control": "Paid tracking and conversion health", "Owner": "Paid media specialist", "Gate": "Required"},
         {"Control": "UTM and measurement baseline", "Owner": "Marketing operator", "Gate": "Required"},
-        {"Control": "Manager approval", "Owner": "Approver / Manager", "Gate": "Required before launch"},
+        {"Control": "Administrator approval", "Owner": "Administrator", "Gate": "Required before launch"},
     ])
 
 
@@ -236,10 +236,10 @@ def render_tasks_approvals(dataset: dict[str, Any], store: OperationalStore, ide
             st.caption(f"The {identity.role.value} role cannot decide approvals.")
     with tabs[2]:
         playbooks = [
-            {"Playbook": "High-impression / low-CTR SEO", "Trigger": "CTR gap with positions 4–20", "Owner": "Marketing Operator", "Approval": "Brand/SEO review", "Measure": "14/30-day CTR and qualified sessions"},
-            {"Playbook": "Creative fatigue", "Trigger": "Frequency rises while CTR falls", "Owner": "Paid Media Specialist", "Approval": "Specialist + manager if budget/status changes", "Measure": "7/14-day frequency, CTR, purchases, ROAS"},
-            {"Playbook": "Unavailable product in marketing", "Trigger": "Active promotion + zero inventory", "Owner": "Paid Media Specialist", "Approval": "Owner review", "Measure": "No spend/traffic to unavailable SKU"},
-            {"Playbook": "Review response", "Trigger": "Unanswered review", "Owner": "Marketing Operator", "Approval": "Manager before public reply", "Measure": "Response within three business days"},
+            {"Playbook": "High-impression / low-CTR SEO", "Trigger": "CTR gap with positions 4–20", "Owner": "Marketing", "Approval": "Brand/SEO review", "Measure": "14/30-day CTR and qualified sessions"},
+            {"Playbook": "Creative fatigue", "Trigger": "Frequency rises while CTR falls", "Owner": "Paid media", "Approval": "Administrator if budget/status changes", "Measure": "7/14-day frequency, CTR, purchases, ROAS"},
+            {"Playbook": "Unavailable product in marketing", "Trigger": "Active promotion + zero inventory", "Owner": "Paid media", "Approval": "Administrator review", "Measure": "No spend/traffic to unavailable SKU"},
+            {"Playbook": "Review response", "Trigger": "Unanswered review", "Owner": "Marketing", "Approval": "Administrator before public reply", "Measure": "Response within three business days"},
             {"Playbook": "Revenue reconciliation", "Trigger": "Absolute or percentage tolerance breached", "Owner": "Data owner", "Approval": "Metric owner sign-off", "Measure": "Explained difference within tolerance"},
         ]
         dataframe(playbooks)

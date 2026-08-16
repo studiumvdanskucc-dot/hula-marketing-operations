@@ -1,6 +1,6 @@
 # HULA Marketing Operations manual
 
-This guide is written for the internal marketing operator. The default app is a
+This guide is written for HULA's sole Administrator. The default app is a
 safe fixture until HULA's named account owners install credentials and live
 source reconciliation passes.
 
@@ -10,18 +10,18 @@ source reconciliation passes.
 python -m streamlit run apps/marketing_operations.py --server.port 8502
 ```
 
-The sidebar must show **Build 2026.08.06-marketing.2** and either:
+The sidebar must show **Build 2026.08.16-marketing.3** and either:
 
 - `FIXTURE MODE · No live account data`, or
 - an authenticated production state.
 
 ## Daily workflow
 
-1. Open **Home**.
+1. Open **Overview**.
 2. Read Critical signals first. Open the evidence and playbook.
 3. Convert a confirmed signal to a task; duplicate rules will reuse the active
    task rather than create repeated work.
-4. Confirm owner and due date in the campaign workboard, or open **Campaigns → Approvals**.
+4. Confirm owner and due date under **Work**, then record any required review.
 5. Check pending approvals and connection health under **Settings**.
 6. Never treat a fixture/demo task as authorization for a live change.
 
@@ -29,7 +29,7 @@ The sidebar must show **Build 2026.08.06-marketing.2** and either:
 
 1. Review **Settings → Connections** for freshness and errors.
 2. Review the source-specific views under **Performance**.
-3. Open **Content & SEO → Trend handoff** and pass only evidence-backed,
+3. Open **Work → Content & SEO → Trend handoff** and pass only evidence-backed,
    inventory-relevant trends into a campaign or content brief.
 4. Check unavailable products before using any one-off resale item in content
    or advertising.
@@ -44,7 +44,8 @@ The sidebar must show **Build 2026.08.06-marketing.2** and either:
 3. Review GA4 and each platform-attribution view separately.
 4. Resolve or explain every reconciliation tolerance breach.
 5. Add factual executive commentary in **Settings → Reports**.
-6. An Approver / Manager reviews the report and data-quality appendix.
+6. Record the named human reviewer and approval evidence required by HULA's
+   release policy. High-risk self-approval remains blocked.
 7. Export the structured PDF and table ZIP. Do not distribute a fixture-labelled
    report as live performance.
 
@@ -93,3 +94,10 @@ One provider failure should not stop other pages. Open **Settings → Connection
 read the redacted state, confirm credential ownership/permission/API version,
 run one explicit connection test, then queue a read-only resync. Never paste a
 secret into a task, report, screenshot or chat.
+
+## Viewer experience
+
+CEO and sales Viewer accounts open directly into one read-only page showing
+sales, orders, AOV, customer mix, location performance and three priority items.
+They cannot see Settings, connectors, audit history, campaign forms or action
+controls.

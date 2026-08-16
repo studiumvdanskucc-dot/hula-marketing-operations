@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import html
 from pathlib import Path
 from typing import Callable
 
@@ -12,17 +11,17 @@ from .connectors.registry import build_connector_registry
 from .demo_data import demo_dataset
 from .models import Role, UserIdentity
 from .pages_unified import (
-    render_campaigns,
-    render_content_seo,
     render_home,
     render_performance,
     render_settings,
+    render_viewer_overview,
+    render_work,
 )
 from .store import OperationalStore
-from .ui_common import default_date_range, inject_styles
+from .ui_common import inject_styles
 
 
-APP_BUILD = "2026.08.06-marketing.2"
+APP_BUILD = "2026.08.16-marketing.3"
 
 
 @st.cache_resource(show_spinner=False)
@@ -32,10 +31,7 @@ def _store(path: str, seed_demo: bool) -> OperationalStore:
 
 def _identity(settings: MarketingSettings) -> UserIdentity:
     if settings.demo_mode:
-        selected = st.session_state.get("marketing_demo_role")
-        if not isinstance(selected, Role):
-            selected = next((role for role in Role if role.value == settings.default_role), Role.MARKETING_OPERATOR)
-        return demo_identity(settings, selected)
+        return demo_identity(settings)
 
     if not settings.auth_enabled:
         st.error("Production mode requires MARKETING_AUTH_ENABLED=true and configured Supabase Auth.")
@@ -63,53 +59,36 @@ def _identity(settings: MarketingSettings) -> UserIdentity:
 def _sidebar(settings: MarketingSettings, identity: UserIdentity, root: Path) -> tuple[str, UserIdentity]:
     logo = root / "assets" / "hula_logo.png"
     if logo.exists():
-        st.sidebar.image(str(logo), width=154)
+        st.sidebar.image(str(logo), width=118)
     st.sidebar.markdown(
-        '<div class="sidebar-brand"><div class="sidebar-kicker">Marketing operating system</div>'
-        '<h2>HULA, run in-house.</h2><p>From trustworthy data to an approved campaign action.</p></div>',
+        '<div class="sidebar-brand"><div class="sidebar-kicker">Marketing OS</div>'
+        '<h2>HULA</h2></div>',
         unsafe_allow_html=True,
     )
     if settings.demo_mode:
-        st.sidebar.markdown('<div class="mode-pill"><span class="mode-dot"></span>Fixture mode · no live accounts</div>', unsafe_allow_html=True)
-        default_role = next((index for index, role in enumerate(Role) if role == identity.role), 1)
-        selected_role = st.sidebar.selectbox(
-            "Preview permissions",
-            list(Role),
-            index=default_role,
-            format_func=lambda role: role.value,
-            key="marketing_demo_role",
-            help="Demo-only. Production roles come from authenticated membership.",
-        )
-        identity = demo_identity(settings, selected_role)
+        st.sidebar.markdown('<div class="mode-pill"><span class="mode-dot"></span>Fixture data</div>', unsafe_allow_html=True)
     else:
-        st.sidebar.markdown('<div class="mode-pill live"><span class="mode-dot"></span>Authenticated production</div>', unsafe_allow_html=True)
-    st.sidebar.caption(f"Signed in as {identity.display_name} · {identity.role.value}")
+        st.sidebar.markdown('<div class="mode-pill live"><span class="mode-dot"></span>Live workspace</div>', unsafe_allow_html=True)
+
+    st.sidebar.markdown(
+        f'<div class="account-card"><strong>{identity.display_name}</strong><span>{identity.role.value}</span></div>',
+        unsafe_allow_html=True,
+    )
     if not identity.demo and st.sidebar.button("Sign out"):
         st.session_state.pop("marketing_auth_session", None)
         st.rerun()
 
-    pages = [
-        "⌂  Home",
-        "◉  Campaigns",
-        "✦  Content & SEO",
-        "↗  Performance",
-        "⚙  Settings",
-    ]
-    page = st.sidebar.radio("Navigation", pages, label_visibility="collapsed")
-    with st.sidebar.expander("Reporting controls"):
-        selected_dates = st.date_input(
-            "Period",
-            value=default_date_range(),
-            help="The bundled fixture covers July 2026. Live marts will filter to the selected dates.",
-        )
-        comparison = st.selectbox("Compare with", ["Previous period", "Previous month", "Previous year", "No comparison"])
-        if isinstance(selected_dates, tuple) and len(selected_dates) == 2:
-            st.session_state["marketing_date_range"] = tuple(selected_dates)
-        st.session_state["marketing_comparison"] = comparison
-    st.sidebar.markdown("---")
-    st.sidebar.caption("Trend Intelligence remains a separate preserved app and feeds approved signals into Content & SEO.")
+    if identity.role is Role.VIEWER:
+        page = "Overview"
+        st.sidebar.markdown('<div class="static-nav active"><span>Overview</span></div>', unsafe_allow_html=True)
+        st.sidebar.caption("Read-only business view")
+    else:
+        pages = ["Overview", "Work", "Performance", "Settings"]
+        page = st.sidebar.radio("Navigation", pages, label_visibility="collapsed")
+
+    st.sidebar.markdown('<div class="sidebar-spacer"></div>', unsafe_allow_html=True)
+    st.sidebar.markdown('<div class="safety-note"><span class="safety-dot"></span><div><strong>External actions off</strong><br>Human approval remains required.</div></div>', unsafe_allow_html=True)
     st.sidebar.caption(f"Build {APP_BUILD} · HKT · HKD")
-    st.sidebar.caption("Live external actions: OFF")
     return page, identity
 
 
@@ -124,13 +103,17 @@ def run_marketing_operations(root: Path | None = None) -> None:
     dataset = demo_dataset()
     connectors = build_connector_registry(settings)
 
-    routes: dict[str, Callable[[], None]] = {
-        "⌂  Home": lambda: render_home(dataset, store, identity, root),
-        "◉  Campaigns": lambda: render_campaigns(dataset, store, identity),
-        "✦  Content & SEO": lambda: render_content_seo(dataset, store, identity, root),
-        "↗  Performance": lambda: render_performance(dataset, store, identity),
-        "⚙  Settings": lambda: render_settings(dataset, store, identity, settings, connectors),
-    }
+    if identity.role is Role.VIEWER:
+        routes: dict[str, Callable[[], None]] = {
+            "Overview": lambda: render_viewer_overview(dataset, identity),
+        }
+    else:
+        routes = {
+            "Overview": lambda: render_home(dataset, store, identity, root),
+            "Work": lambda: render_work(dataset, store, identity, root),
+            "Performance": lambda: render_performance(dataset, store, identity),
+            "Settings": lambda: render_settings(dataset, store, identity, settings, connectors),
+        }
     try:
         routes[page]()
     except Exception as exc:

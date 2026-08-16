@@ -275,7 +275,7 @@ class OperationalStore:
                     severity=severity,
                     recommended_action=action,
                     due_date=due,
-                    owner="Marketing Operator" if source != "Meta Ads" else "Paid Media Specialist",
+                    owner="Marketing" if source != "Meta Ads" else "Paid media",
                     data_mode="fixture",
                 )
         if not self.list_campaigns(limit=1):
@@ -290,7 +290,7 @@ class OperationalStore:
                 budget_hkd=16_500,
                 products="Approved available inventory only",
                 channels=["Google Ads", "Meta Ads", "Klaviyo", "Landing page"],
-                owner="Marketing Operator",
+                owner="Marketing",
                 status="Awaiting decision",
                 utm_plan="utm_campaign=sg_launch_2026_09",
             )
@@ -299,7 +299,7 @@ class OperationalStore:
                 actor,
                 title="Preowned vs Preloved — snippet and article refresh",
                 content_type="Blog article",
-                owner="Marketing Operator",
+                owner="Marketing",
                 business_objective="Increase qualified organic clicks to HULA's educational content and collections",
                 audience="Luxury shoppers comparing resale terminology",
                 primary_keyword="preowned vs preloved",

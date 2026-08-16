@@ -59,8 +59,8 @@ class MarketingSettings:
     supabase_url: str = ""
     supabase_anon_key: str = ""
     auth_enabled: bool = False
-    demo_user_name: str = "Tereza (Demo Operator)"
-    default_role: str = "Marketing Operator"
+    demo_user_name: str = "Tereza"
+    default_role: str = "Administrator"
     feature_flags: dict[str, bool] = field(default_factory=dict)
     shopify_store_domain: str = ""
     shopify_access_token: str = ""
@@ -137,8 +137,8 @@ def load_marketing_settings() -> MarketingSettings:
         supabase_url=str(_setting("SUPABASE_URL", "")),
         supabase_anon_key=str(_setting("SUPABASE_ANON_KEY", "")),
         auth_enabled=_bool(_setting("MARKETING_AUTH_ENABLED", False)),
-        demo_user_name=str(_setting("DEMO_USER_NAME", "Tereza (Demo Operator)")),
-        default_role=str(_setting("DEMO_DEFAULT_ROLE", "Marketing Operator")),
+        demo_user_name=str(_setting("DEMO_USER_NAME", "Tereza")),
+        default_role=str(_setting("DEMO_DEFAULT_ROLE", "Administrator")),
         feature_flags=flags,
         shopify_store_domain=str(
             _setting("SHOPIFY_STORE_DOMAIN", _setting("SHOPIFY_SHOP", ""))
