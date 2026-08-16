@@ -21,7 +21,7 @@ from .store import OperationalStore
 from .ui_common import inject_styles
 
 
-APP_BUILD = "2026.08.16-marketing.3"
+APP_BUILD = "2026.08.16-marketing.4"
 
 
 @st.cache_resource(show_spinner=False)

@@ -39,7 +39,7 @@ required, and no external write can execute.
 
 ## Verified
 
-- 126/126 tests pass (94 preserved Trend Intelligence + 32 Marketing Operations);
+- 127/127 tests pass (94 preserved Trend Intelligence + 33 Marketing Operations);
 - Trend Intelligence health `ok`, HTTP 200;
 - Marketing Operations health `ok`, HTTP 200 without credentials;
 - all Administrator workspaces/subviews and the single Viewer page passed

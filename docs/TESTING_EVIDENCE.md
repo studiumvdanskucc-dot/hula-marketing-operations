@@ -16,10 +16,10 @@ python -m compileall -q app.py apps src jobs scripts tests
 Result: passed
 
 python -m pytest -q
-Result: 126 passed in 177.40s
+Result: 127 passed in 182.44s
 
 Original Trend Intelligence tests: 94
-Marketing Operations tests: 32
+Marketing Operations tests: 33
 
 Trend Intelligence process:
   /_stcore/health = ok
@@ -34,6 +34,7 @@ Marketing Operations coverage includes:
 
 - all four Administrator workspaces and every consolidated subview without credentials;
 - the single Viewer overview, with no navigation selector or mutation buttons;
+- the expand-sidebar control remains visible after the navigation is collapsed;
 - campaign-checklist selection and idempotent task creation;
 - metric calculations and July reconciliation controls;
 - explicit separation of analytics events from the Shopify Online Store summary;

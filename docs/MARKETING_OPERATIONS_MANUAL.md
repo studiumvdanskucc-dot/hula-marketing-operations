@@ -10,7 +10,7 @@ source reconciliation passes.
 python -m streamlit run apps/marketing_operations.py --server.port 8502
 ```
 
-The sidebar must show **Build 2026.08.16-marketing.3** and either:
+The sidebar must show **Build 2026.08.16-marketing.4** and either:
 
 - `FIXTURE MODE · No live account data`, or
 - an authenticated production state.

@@ -99,3 +99,15 @@ def test_viewer_gets_one_read_only_overview(tmp_path, monkeypatch) -> None:
     captions = " ".join(item.value for item in app.caption)
     assert "read-only" in captions.lower()
     assert not app.button
+
+
+def test_collapsed_sidebar_keeps_reopen_control_visible(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DEMO_MODE", "true")
+    monkeypatch.setenv("DEMO_DEFAULT_ROLE", "Administrator")
+    monkeypatch.setenv("MARKETING_DATABASE_PATH", str(tmp_path / "sidebar.sqlite3"))
+    app = AppTest.from_file(APP_PATH, default_timeout=45).run()
+    assert not app.exception
+    styles = " ".join(item.value for item in app.markdown if "stExpandSidebarButton" in item.value)
+    assert '[data-testid="stExpandSidebarButton"]' in styles
+    assert "visibility:visible !important" in styles
+    assert '[data-testid="stToolbar"]' in styles

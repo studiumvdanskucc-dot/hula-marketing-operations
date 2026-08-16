@@ -1,6 +1,6 @@
 # HULA Marketing Operations first-release status
 
-**Build:** `2026.08.16-marketing.3`  
+**Build:** `2026.08.16-marketing.4`  
 **Data mode:** fixture by default  
 **External writes:** disabled and not implemented
 
@@ -32,7 +32,7 @@
   security checklist and deployment guide.
 - Safe defaults: no credentials required, all write flags off, no fake live
   connection.
-- Final verification: 126/126 tests passed; both Streamlit entry points returned
+- Final verification: 127/127 tests passed; both Streamlit entry points returned
   health `ok` and HTTP 200; the interface and four-page PDF passed rendered visual QA.
 
 ## Partially completed

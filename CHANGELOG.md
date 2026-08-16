@@ -1,5 +1,12 @@
 # Changelog
 
+## Build 2026.08.16-marketing.4 — Sidebar Reopen Control
+
+- Restored Streamlit's expand-sidebar control after the navigation is collapsed.
+- Kept the expand control visible and clickable while continuing to hide
+  nonessential hosted-app toolbar actions.
+- Added a regression check for the reopen-control styling in the Administrator app.
+
 ## Build 2026.08.16-marketing.3 — Calm Two-Role Commerce UI
 
 - Reduced access to exactly two levels: Administrator and read-only Viewer.

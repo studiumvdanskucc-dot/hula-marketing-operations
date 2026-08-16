@@ -135,7 +135,7 @@ Marketing Operations documentation:
 - provider setup under [`docs/integrations/`](docs/integrations/SHOPIFY.md);
 - [first-release status](docs/FINAL_STATUS.md).
 
-Seeing **Build 2026.08.16-marketing.3** in the Marketing Operations sidebar
+Seeing **Build 2026.08.16-marketing.4** in the Marketing Operations sidebar
 confirms the calm two-role interface. Trend Intelligence retains its independent
 build number and all existing capabilities.
 

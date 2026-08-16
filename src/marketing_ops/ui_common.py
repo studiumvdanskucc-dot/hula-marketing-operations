@@ -153,7 +153,12 @@ def inject_styles() -> None:
         .stButton > button[kind="primary"] { background:linear-gradient(110deg,var(--plum),#5b2c70); color:white; border:0; }
         .stButton > button:hover, .stDownloadButton > button:hover { border-color:var(--pink); color:var(--pink); box-shadow:0 6px 16px rgba(255,79,154,.10); }
         [data-testid="stDataFrame"] { border:1px solid var(--line); border-radius:14px; overflow:hidden; }
-        footer, #MainMenu, [data-testid="stToolbar"], [data-testid="stAppDeployButton"] { visibility:hidden; }
+        footer, #MainMenu, [data-testid="stAppDeployButton"] { visibility:hidden; }
+        [data-testid="stToolbar"], [data-testid="stExpandSidebarButton"] {
+            visibility:visible !important;
+            opacity:1 !important;
+            pointer-events:auto !important;
+        }
         header[data-testid="stHeader"] { background:transparent; }
         @media (max-width:980px) { .loop-strip { grid-template-columns:1fr 1fr; } .block-container { padding:1.4rem 1.2rem 4rem; } }
         @media (max-width:780px) { .ops-title { font-size:2.3rem; } .hero-panel { padding:1.6rem; border-radius:20px; } .loop-strip { grid-template-columns:1fr; } }
@@ -161,7 +166,7 @@ def inject_styles() -> None:
         """,
         unsafe_allow_html=True,
     )
-    # Build 2026.08.16-marketing.3: calm commerce-dashboard visual layer.
+    # Build 2026.08.16-marketing.4: calm commerce-dashboard visual layer.
     # This intentionally overrides the earlier brand-heavy prototype without
     # changing its reusable components or business logic.
     st.markdown(
@@ -266,8 +271,26 @@ def inject_styles() -> None:
         .stButton > button:hover,.stDownloadButton > button:hover { border-color:var(--pink); color:var(--pink); box-shadow:none; }
         [data-testid="stDataFrame"] { border:1px solid var(--line); border-radius:11px; overflow:hidden; }
         [data-testid="stExpander"] { border-color:var(--line); border-radius:11px; background:#fff; }
-        footer,#MainMenu,[data-testid="stToolbar"],[data-testid="stAppDeployButton"],[data-testid="stDecoration"] { visibility:hidden; }
+        footer,#MainMenu,[data-testid="stAppDeployButton"],[data-testid="stDecoration"],[data-testid="stToolbarActions"] { visibility:hidden; }
         header[data-testid="stHeader"] { background:transparent; }
+        [data-testid="stToolbar"] {
+            visibility:visible !important;
+            opacity:1 !important;
+            pointer-events:auto !important;
+        }
+        [data-testid="stExpandSidebarButton"] {
+            visibility:visible !important;
+            opacity:1 !important;
+            pointer-events:auto !important;
+        }
+        [data-testid="stExpandSidebarButton"] button {
+            margin:.35rem 0 0 .35rem;
+            border:1px solid var(--line) !important;
+            border-radius:10px !important;
+            background:#fff !important;
+            color:var(--plum) !important;
+            box-shadow:0 2px 8px rgba(32,28,34,.08) !important;
+        }
         @media (max-width:980px) { .block-container { padding:1.4rem 1.15rem 4rem; } }
         @media (max-width:780px) { .ops-title { font-size:1.9rem; } .hero-panel { padding:.1rem 0 .65rem; } }
         </style>
