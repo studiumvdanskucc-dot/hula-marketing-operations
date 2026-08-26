@@ -6,6 +6,12 @@ retained when conversion is required.
 
 | Business metric | Technical name | Formula | Source of truth | Attribution | Refresh | Important limitation |
 |---|---|---|---|---|---|---|
+| Gross merchandise value | `shopify_gmv` | Gross value of included merchandise sold before the HULA/seller allocation | Shopify / Report Pundit | None | Hourly + nightly | Inclusion and refund timing require finance sign-off |
+| HULA retained revenue | `hula_retained_revenue` | Shopify net revenue after actual discounts/refunds × configurable retained-margin rate | Shopify order lines + approved commercial rules | None | Daily | 31% is currently a provisional blended proxy, not a universal order rule |
+| HULA contribution | `hula_contribution` | Shopify net revenue × retained-margin rate × (1 − payment-fees-and-shipping rate of retained margin) | Shopify/Report Pundit + finance rules | None | Daily | Actual refunds are already in net revenue; current cost proxy is 10% of retained margin |
+| Contribution ROAS | `paid_contribution_roas` | Platform claim × retained rate × cost factor × forecast non-return factor / paid spend | Paid platform + HULA contribution model | Native and normalized views disclosed | Daily | Current scenario uses a provisional 10% return provision; recommendations must not use full selling price alone |
+| Break-even platform GMV ROAS | `paid_platform_break_even_roas` | 1 / (31% × 90% × 90%) = 3.98x ≈ 4.0x | HULA profitability policy | Same window as attributed value | Daily | Equivalent to 1.0x contribution ROAS; 4.0x must never be labelled contribution ROAS |
+| Claim excess indicator | `paid_claim_excess_orders` | Sum comparable platform-claimed orders − same-scope Shopify orders | Google + Meta + Shopify | Governed comparison window | Daily | Unavailable when dates/order scope differ; not an exact duplicate-customer count |
 | Commerce revenue | `shopify_booked_commerce_revenue` | Included Shopify/POS commerce amount under the signed gross/discount/refund/tax/shipping/exclusion rules | Shopify/POS | None; booked commerce | Hourly + nightly reconciliation | Definition must state treatment of refunds, gift cards, tests, staff, exchange and cancelled orders |
 | Net revenue | `shopify_net_revenue` | Gross sales − included discounts − included returns/refunds, with tax/shipping treatment stated | Shopify/POS | None | Hourly + nightly | Not interchangeable with provider-attributed revenue |
 | Orders | `shopify_included_orders` | Count of distinct included order IDs | Shopify/POS | None | Hourly | The agency fixture has five orders not allocated to displayed locations |
@@ -48,6 +54,10 @@ The corrected fixture also records that the four displayed channel rows total
 HK$1,337,083.87, only 53.69% of headline commerce revenue, while Klaviyo uses a
 90-day attribution window and Meta uses seven days. These rows are separate,
 overlapping attribution views—not a complete channel split.
+
+The management paid-media comparison is designed as a normalized 7-day
+click-only view for Google and Meta where their APIs support it. Platform-native
+settings remain visible separately, and Klaviyo remains outside the paid block.
 
 The supplied report's analytics page states 57,585 session starts, 56,127 page
 views, 35,081 view-item events and 851 add-to-cart events. Shopify separately

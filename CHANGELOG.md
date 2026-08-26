@@ -1,5 +1,40 @@
 # Changelog
 
+## Build 2026.08.26-marketing.6 — Confirmed Profitability Inputs & API Readiness
+
+- Corrected the HULA calculation so payment fees plus shipping are 10% of
+  retained margin—not ten percentage points of GMV—and actual Shopify refunds
+  are deducted exactly once.
+- Added configurable 31% retained margin, a provisional 10% forecast return
+  provision for platform claims, 4.0x gross/platform break-even and the
+  equivalent 1.0x contribution-ROAS break-even.
+- Kept SCALE fail-closed until HULA approves the retained definition, forecast
+  return policy, scaling target, minimum purchase volume, channel caps and live
+  inventory/data.
+- Added a real read-only Meta Ads account/insights connector using a normalized
+  seven-day click query without summing overlapping purchase action types.
+- Added the 26 August ownership/API audit to Settings: Shopify and Meta admin
+  readiness passed but credentials are not configured; Google Ads access is
+  still missing; legacy/GoodSauce dependencies remain visible.
+- Kept every external write disabled and added no credentials to the repository.
+
+## Build 2026.08.26-marketing.5 — Contribution Decision System
+
+- Added the questionnaire-backed profitability register: Shopify/Report Pundit
+  commerce truth, provisional 31% retained margin, blocking Sarah/Eric inputs,
+  HELLOHULA treatment and repeat-customer/payback decisions.
+- Rebuilt paid-media recommendations around 7/14/28/56-day windows, purchase
+  volume, platform ROAS, retained/contribution ROAS, large-order dependency,
+  one-more-order sensitivity, inventory, confidence and next-review triggers.
+- Made recommendations fail closed: unresolved contribution, floor, volume,
+  budget or inventory inputs produce REVIEW instead of a fabricated decision.
+- Added the normalized 7-day click-only management comparison while preserving
+  platform-native attribution and keeping Klaviyo separate.
+- Added a same-scope guard for the claim-excess indicator; it is unavailable
+  rather than misleading when platform and Shopify order populations differ.
+- Added hard-budget, automation-boundary, three-named-approver and GoodSauce
+  ownership/handover registers. All external actions remain OFF.
+
 ## Build 2026.08.16-marketing.4 — Sidebar Reopen Control
 
 - Restored Streamlit's expand-sidebar control after the navigation is collapsed.

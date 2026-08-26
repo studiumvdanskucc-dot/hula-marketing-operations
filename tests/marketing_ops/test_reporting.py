@@ -19,5 +19,9 @@ def test_csv_bundle_contains_governed_tables_and_notice() -> None:
         names = set(archive.namelist())
         assert "reconciliation.csv" in names
         assert "google_campaigns.csv" in names
+        assert "business_rule_register.csv" in names
+        assert "access_readiness.csv" in names
+        assert "profitability_policy.json" in names
+        assert "paid_media_recommendations.json" in names
         assert "metadata.json" in names
         assert "fixture" in archive.read("README.txt").decode().lower()

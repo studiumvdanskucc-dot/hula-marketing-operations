@@ -288,7 +288,7 @@ def render_integrations(
             st.warning(result.message)
         st.json({"state": result.state.value, "checked_at": result.checked_at, "account": result.account_label, "api_version": result.api_version, "permissions": list(result.permissions), "detail": result.detail})
 
-    if has_permission(identity.role, Permission.MANAGE_TASKS) and validation.valid and selected_name in {"Shopify", "Google Analytics 4", "Google Search Console"}:
+    if has_permission(identity.role, Permission.MANAGE_TASKS) and validation.valid and selected_name in {"Shopify", "Google Analytics 4", "Google Search Console", "Meta Ads"}:
         if st.button("Queue read-only resync"):
             digest = hashlib.sha256(f"{selected_name}:{date.today().isoformat()}".encode()).hexdigest()[:20]
             job_id = store.enqueue_job(identity, f"sync_{selected_name.lower().replace(' ', '_')}", {"provider": selected_name, "mode": "read_only", "window": "last_7_complete_days"}, idempotency_key=f"sync:{digest}")
@@ -296,13 +296,13 @@ def render_integrations(
 
     section("Feature flags", "Server-side controls")
     dataframe([{"Flag": name, "Value": "ON" if value else "OFF", "Policy": "Must remain OFF in first release" if name.startswith("ENABLE_") else "Required safeguard"} for name, value in settings.feature_flags.items()])
-    section("API versions verified for this build", "6 August 2026")
+    section("API versions pinned for this build", "26 August 2026")
     dataframe([
         {"Provider": "Shopify Admin GraphQL", "Pinned": "2026-07", "Status": "Latest stable observed at build time"},
         {"Provider": "GA4 Data API", "Pinned": "v1 / REST v1beta resource", "Status": "Official runReport API"},
         {"Provider": "Search Console", "Pinned": "v1 (webmasters v3 REST base)", "Status": "OAuth read-only"},
         {"Provider": "Google Ads", "Pinned": "v25", "Status": "Health shell; latest major released 22 July 2026"},
-        {"Provider": "Meta Marketing API", "Pinned": "v26.0", "Status": "Health shell; released 29 July 2026"},
+        {"Provider": "Meta Marketing API", "Pinned": "v26.0", "Status": "Read-only campaign-insights connector"},
         {"Provider": "Klaviyo", "Pinned": "2026-01-15 stable", "Status": "Health shell; beta campaign revisions deliberately avoided"},
         {"Provider": "Merchant API", "Pinned": "v1", "Status": "v1beta retired"},
         {"Provider": "PageSpeed Insights", "Pinned": "v5", "Status": "Health shell"},

@@ -115,7 +115,17 @@ approvals and experiments remain available inside Work rather than becoming
 separate application roles or a crowded sidebar.
 It includes campaign-specific workboards, tasks/approvals, controlled content,
 deterministic signals, structured PDF/CSV exports, read-only Shopify/GA4/Search
-Console clients, and honest health shells for the remaining platforms.
+Console and Meta Ads clients, and honest health shells for the remaining platforms.
+
+Build `2026.08.26-marketing.6` adds the HULA decision and access-readiness
+layer: GMV → Shopify net revenue → retained revenue → contribution, paid-media recommendation cards with 7/14/28/56-day
+evidence and purchase counts, large-order and inventory checks, a normalized
+7-day click management view, guarded claim-excess reporting, named approval
+rules and the GoodSauce ownership handover checklist. The configurable scenario
+uses 31% retained margin, payment fees plus shipping at 10% of retained margin,
+and a separate provisional 10% return provision for platform claims. It labels
+4.0x as gross/platform break-even and 1.0x as contribution break-even; SCALE
+remains blocked until the remaining policy and live-data inputs are approved.
 
 The corrected fixture does not invent a complete ecommerce funnel. The report's
 57,585 session starts / 35,081 view-item events / 851 analytics add-to-cart events
@@ -131,13 +141,14 @@ Marketing Operations documentation:
   [attribution guide](docs/ATTRIBUTION_GUIDE.md);
 - [operator manual](docs/MARKETING_OPERATIONS_MANUAL.md);
 - [security and write controls](docs/SECURITY_AND_WRITE_CONTROLS.md);
+- [HULA profitability and paid-media decision policy](docs/HULA_DECISION_POLICY.md);
 - [deployment](docs/MARKETING_DEPLOYMENT.md);
 - provider setup under [`docs/integrations/`](docs/integrations/SHOPIFY.md);
 - [first-release status](docs/FINAL_STATUS.md).
 
-Seeing **Build 2026.08.16-marketing.4** in the Marketing Operations sidebar
-confirms the calm two-role interface. Trend Intelligence retains its independent
-build number and all existing capabilities.
+Seeing **Build 2026.08.26-marketing.6** in the Marketing Operations sidebar
+confirms the contribution decision-system build. Trend Intelligence retains its
+independent build number and all existing capabilities.
 
 ## Setup order
 

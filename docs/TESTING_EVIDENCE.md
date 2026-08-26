@@ -16,10 +16,10 @@ python -m compileall -q app.py apps src jobs scripts tests
 Result: passed
 
 python -m pytest -q
-Result: 127 passed in 182.44s
+Result: 142 passed in 163.38s
 
 Original Trend Intelligence tests: 94
-Marketing Operations tests: 33
+Marketing Operations tests: 48
 
 Trend Intelligence process:
   /_stcore/health = ok
@@ -37,21 +37,27 @@ Marketing Operations coverage includes:
 - the expand-sidebar control remains visible after the navigation is collapsed;
 - campaign-checklist selection and idempotent task creation;
 - metric calculations and July reconciliation controls;
+- profitability bridge and fail-closed paid-media decisions;
+- exact 31% × 90% × 90% scenario math and protection against deducting actual
+  Shopify refunds twice;
+- 7/14/28/56-day evidence, large-order dependency and one-more-order sensitivity;
+- same-scope protection for the claim-excess indicator;
+- configurable finance, hard-budget and named-approver policy inputs;
 - explicit separation of analytics events from the Shopify Online Store summary;
 - channel-chart coverage and 90-day email / seven-day Meta window controls;
 - permission and risk matrix;
 - fixture/demo live-action guard;
 - task deduplication and rejection reason;
-- second-approval self-approval prevention;
+- second-approval self-approval prevention and the all-three major-change rule;
 - redacted errors and customer-data redaction;
-- Shopify, GA4 and Search Console connector contracts with mocked HTTP;
+- Shopify, Meta Ads, GA4 and Search Console connector contracts with mocked HTTP;
+- API-access readiness kept distinct from live credential/sync state;
 - report PDF and CSV/ZIP generation.
 
-The management PDF is rendered with Poppler and checked page by page after each
-material report-layout change. The Marketing Operations interface is also
-captured at a 1600 × 1100 desktop viewport for Overview, all three Work views,
-all five Performance views, Connections, Governance and the single Viewer page
-to verify navigation, responsive KPI cards, tables and safety controls.
+The updated four-page management PDF is rendered with Poppler and checked page
+by page after the decision-section layout change. Streamlit AppTest renders all
+Administrator subviews and the single Viewer page, checks the recommendation
+evidence labels, and verifies the Viewer exposes no mutation buttons.
 
 Tests are offline and use fixtures/mocked HTTP sessions. CI must never perform a
 live write. Production provider contract checks are explicit read-only health

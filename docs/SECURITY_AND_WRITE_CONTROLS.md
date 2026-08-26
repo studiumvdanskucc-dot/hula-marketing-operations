@@ -47,15 +47,26 @@ Recommendation → proposal → validation → permission → before snapshot
 → provider verification → audit → outcome measurement
 ```
 
-High risk still requires an independent second reviewer; the sole Administrator
-cannot satisfy their own second-approval gate. Until a governed second-review
-method and the future action adapter are released, high-risk external actions
-remain blocked. Every future adapter also needs an idempotency key and a tested
-rollback or an explicitly documented no-rollback limitation.
+Major paid-media changes require named confirmation from **Sarah, Elena and
+Tiffany**. These are approval identities, not extra operational views. The sole
+Administrator cannot substitute for the three confirmations. Until a governed
+identity-specific voting method and the future action adapter are released,
+major external actions remain blocked. Every future adapter also needs an
+idempotency key and a tested rollback or an explicitly documented no-rollback
+limitation.
 
 ## Pre-production checklist
 
 - [ ] Invite-only users and named backup owners configured.
+- [ ] Sarah, Elena and Tiffany approval identities and evidence retention configured.
+- [ ] Google and Meta hard monthly caps approved and recorded.
+- [ ] Final 31% retained-margin definition, 10% forecast return provision,
+  scale target, purchase-volume threshold and payback window approved.
+- [ ] Shopify production app installed with least-privilege reads; Store owner,
+  recovery and legacy custom-app dependencies documented.
+- [ ] Meta production app/system user has only required assets and `ads_read`;
+  token is stored in the deployment secret manager and reconciled once.
+- [ ] Google Ads HULA-controlled Admin access and manager/API ownership confirmed.
 - [ ] Both migrations applied; sole Administrator and Viewer access tested.
 - [ ] Service-role key available only to worker runtime.
 - [ ] All provider permissions reviewed against official current docs.

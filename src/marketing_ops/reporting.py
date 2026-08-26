@@ -24,6 +24,7 @@ from reportlab.platypus import (
     TableStyle,
 )
 
+from .decision_engine import evaluate_paid_media, policy_from_mapping
 from .metrics import format_hkd
 from .metric_dictionary import metric_rows
 
@@ -144,7 +145,9 @@ def monthly_report_pdf(
         ]
     )
     headline = [
-        ["Commerce revenue", format_hkd(executive["commerce_revenue"])],
+        ["Shopify GMV", format_hkd(executive["gmv"])],
+        ["HULA retained revenue", format_hkd(executive.get("retained_revenue"))],
+        ["Contribution", format_hkd(executive.get("contribution"))],
         ["Paid-media spend", format_hkd(executive["paid_spend"], 2)],
         ["Platform paid revenue", format_hkd(executive["platform_paid_revenue"], 2)],
         ["Blended paid ROAS", f"{executive['blended_roas']:.2f}x"],
@@ -162,47 +165,68 @@ def monthly_report_pdf(
     else:
         story.append(_paragraph("Fixture view: July commerce revenue was HK$2.49m, paid-media spend HK$30.4k, and platform-attributed Google/Meta revenue HK$233.9k. Location totals, channel coverage and order allocation require reconciliation before this becomes a trusted baseline.", styles["HulaBody"]))
 
-    story.extend([_paragraph("2. Shopify revenue and customers", styles["HulaH1"]), _paragraph("Shopify/POS commerce revenue is the booked-commerce source of truth. Platform and analytics attribution are shown separately and must not be added together.", styles["HulaBody"])])
+    story.extend([_paragraph("2. Profitability and paid-media decisions", styles["HulaH1"]), _paragraph("GMV, Shopify net revenue, HULA retained revenue and contribution answer different questions. The current scenario uses a configurable 31% retained margin, payment fees plus shipping at 10% of retained margin, and a separate provisional 10% return provision for platform claims. SCALE and all external actions remain blocked.", styles["HulaNote"])])
+    policy = policy_from_mapping(dataset.get("profitability_policy") or {})
+    decision_rows = [["Campaign", "Decision", "Window", "Platform ROAS", "Purchases", "Contribution ROAS", "Break-even platform", "Confidence"]]
+    for card in dataset.get("paid_media_recommendations") or []:
+        selected = next(row for row in card["windows"] if row["days"] == card["selected_days"])
+        result = evaluate_paid_media(
+            attributed_gmv=float(selected["attributed_gmv"]),
+            spend=float(selected["spend"]),
+            purchases=int(selected["purchases"]),
+            order_values=card["order_values"],
+            median_order_value=card.get("median_order_value"),
+            inventory_available=card.get("inventory_available"),
+            channel=card["channel"],
+            policy=policy,
+        )
+        ratio = lambda value: "-" if value is None else f"{value:.2f}x"
+        decision_rows.append([card["campaign"], result.decision, f"{card['selected_days']} days", ratio(result.platform_roas), str(selected["purchases"]), ratio(result.contribution_roas), ratio(result.break_even_gmv_roas), result.confidence])
+    story.extend([Spacer(1, 6), _wrapped_table(decision_rows, col_widths=[40 * mm, 18 * mm, 15 * mm, 21 * mm, 15 * mm, 21 * mm, 25 * mm, 17 * mm], font_size=5.8)])
+    story.append(_paragraph("Claim excess is unavailable until paid-platform claims and actual Shopify orders use the same dates, eligibility and channel scope. Klaviyo remains separate from paid acquisition.", styles["HulaNote"]))
+
+    story.append(PageBreak())
+    story.extend([_paragraph("3. Shopify revenue and customers", styles["HulaH1"]), _paragraph("Shopify/Report Pundit commerce is the source of truth. Platform and analytics attribution are shown separately and must not be added together.", styles["HulaBody"])])
     store_data = [["Location", "Orders", "Revenue", "MoM"]] + [[row["location"], f"{row['orders']:,}", format_hkd(row["revenue"], 2), f"{row['mom_pct']:+.1f}%"] for row in dataset["stores"]]
     store_table = _wrapped_table(store_data, col_widths=[50 * mm, 25 * mm, 45 * mm, 25 * mm])
-    story.extend([Spacer(1, 6), store_table, _paragraph("Customer view: 167 new customers and 176 repeat buyers in the agency fixture. The displayed HK$182 is paid spend divided by all 167 new customers, including in-store and potentially organic customers, so it is an efficiency proxy rather than paid CAC.", styles["HulaNote"]), PageBreak()])
+    story.extend([Spacer(1, 6), store_table, _paragraph("Customer view: 167 new customers and 176 repeat buyers in the agency fixture. The displayed HK$182 is paid spend divided by all 167 new customers, including in-store and potentially organic customers, so it is an efficiency proxy rather than paid CAC.", styles["HulaNote"])])
 
-    story.extend([_paragraph("3. Google Ads", styles["HulaH1"]), _paragraph("Google Ads platform attribution - read-only operating view", styles["HulaNote"])])
+    story.extend([_paragraph("4. Google Ads", styles["HulaH1"]), _paragraph("Google Ads platform attribution - read-only operating view", styles["HulaNote"])])
     google_rows = [["Campaign", "Spend", "Purchases", "Value", "ROAS", "Pacing"]] + [[row["campaign"], format_hkd(row["spend"]), str(row["purchases"]), format_hkd(row["purchase_value"]), f"{row['roas']:.2f}x", f"{row['budget_pacing_pct']}%"] for row in dataset["google_campaigns"]]
     google_table = _wrapped_table(google_rows, col_widths=[55 * mm, 23 * mm, 18 * mm, 29 * mm, 18 * mm, 18 * mm], font_size=6.8)
     story.extend([google_table, _paragraph("No budget, bidding, conversion, keyword, or status change is executed by this report.", styles["HulaNote"])])
 
-    story.extend([_paragraph("4. Organic search and SEO", styles["HulaH1"]), _paragraph("Priorities use a transparent weighted score; no keyword volume is invented.", styles["HulaBody"])])
+    story.extend([_paragraph("5. Organic search and SEO", styles["HulaH1"]), _paragraph("Priorities use a transparent weighted score; no keyword volume is invented.", styles["HulaBody"])])
     seo_rows = [["Query", "Page", "Impr.", "CTR", "Pos.", "Score"]] + [[row["query"], row["page"], f"{row['impressions']:,}", f"{row['ctr']:.2f}%", f"{row['position']:.1f}", f"{row['score']:.1f}"] for row in dataset["seo_opportunities"]]
     seo_table = _wrapped_table(seo_rows, col_widths=[35 * mm, 64 * mm, 22 * mm, 17 * mm, 15 * mm, 18 * mm], font_size=6.2)
     story.append(seo_table)
 
-    story.extend([_paragraph("5. AI referral traffic", styles["HulaH1"]), _paragraph("Only observable referral and onsite behavior is measured; the platform cannot see private prompts or know why an assistant cited HULA.", styles["HulaNote"])])
+    story.extend([_paragraph("6. AI referral traffic", styles["HulaH1"]), _paragraph("Only observable referral and onsite behavior is measured; the platform cannot see private prompts or know why an assistant cited HULA.", styles["HulaNote"])])
     ai_rows = [["Source", "Sessions", "Engagement", "Product views", "ATC", "Purchases", "Revenue"]] + [[row["source"], str(row["sessions"]), f"{row['engagement_rate']:.1f}%", str(row["product_views"]), str(row["add_to_carts"]), str(row["purchases"]), format_hkd(row["revenue"])] for row in dataset["ai_referrals"]]
     ai_table = _wrapped_table(ai_rows, col_widths=[24 * mm, 20 * mm, 24 * mm, 26 * mm, 14 * mm, 19 * mm, 27 * mm], font_size=7)
     story.extend([ai_table, PageBreak()])
 
-    story.extend([_paragraph("6. Google Business Profile", styles["HulaH1"])])
+    story.extend([_paragraph("7. Google Business Profile", styles["HulaH1"])])
     gbp_rows = [["Location", "Views", "Clicks", "Calls", "Directions", "Rating", "Unanswered"]] + [[row["location"], f"{row['views']:,}", f"{row['website_clicks']:,}", str(row["calls"]), f"{row['directions']:,}", f"{row['rating']:.1f}", str(row["unanswered"])] for row in dataset["gbp"]]
     gbp_table = _wrapped_table(gbp_rows, col_widths=[27 * mm, 23 * mm, 22 * mm, 18 * mm, 25 * mm, 18 * mm, 25 * mm], font_size=7)
     story.append(gbp_table)
 
-    story.extend([_paragraph("7. Meta Ads", styles["HulaH1"]), _paragraph("Meta platform attribution - the supplied report states a seven-day attribution window", styles["HulaNote"])])
+    story.extend([_paragraph("8. Meta Ads", styles["HulaH1"]), _paragraph("Meta platform attribution - the supplied report states a seven-day window; click/view mix still needs confirmation", styles["HulaNote"])])
     meta_rows = [["Campaign", "Spend", "Frequency", "CTR", "Purchases", "Value", "ROAS"]] + [[row["campaign"], format_hkd(row["spend"]), f"{row['frequency']:.2f}", f"{row['ctr']:.2f}%", str(row["purchases"]), format_hkd(row["purchase_value"]), f"{row['roas']:.2f}x"] for row in dataset["meta_campaigns"]]
     meta_table = _wrapped_table(meta_rows, col_widths=[47 * mm, 25 * mm, 22 * mm, 18 * mm, 21 * mm, 26 * mm, 18 * mm], font_size=7)
     story.append(meta_table)
 
-    story.extend([_paragraph("8. Klaviyo", styles["HulaH1"]), _paragraph("Klaviyo platform-attributed values; the supplied report states a 90-day attribution window. These values can overlap paid and direct revenue.", styles["HulaNote"])])
+    story.extend([_paragraph("9. Klaviyo", styles["HulaH1"]), _paragraph("Klaviyo platform-attributed values; the supplied report states a 90-day attribution window. Verify the current account setting. These values can overlap paid and direct revenue.", styles["HulaNote"])])
     klaviyo_rows = [["Campaign / flow", "Type", "Recipients", "Open", "Click", "Orders", "Revenue"]] + [[row["name"], row["type"], f"{row['recipients']:,}", f"{row['open_rate']:.1f}%", f"{row['click_rate']:.1f}%", str(row["orders"]), format_hkd(row["revenue"])] for row in dataset["klaviyo"]]
     klaviyo_table = _wrapped_table(klaviyo_rows, col_widths=[47 * mm, 25 * mm, 22 * mm, 18 * mm, 18 * mm, 17 * mm, 29 * mm], font_size=6.7)
     story.extend([klaviyo_table, PageBreak()])
 
-    story.extend([_paragraph("9-13. Opportunities, completed work, risks, and actions", styles["HulaH1"]), _paragraph("The first priorities are to resolve data reconciliation, close the highest-impression SEO click-through gaps, refresh fatigued paid creative, and verify unavailable-product promotion. Each item must be converted to an owned task with evidence and a measurement date.", styles["HulaBody"])])
+    story.extend([_paragraph("10-14. Opportunities, completed work, risks, and actions", styles["HulaH1"]), _paragraph("The first priorities are to resolve data reconciliation, close the highest-impression SEO click-through gaps, refresh fatigued paid creative, and verify unavailable-product promotion. Each item must be converted to an owned task with evidence and a measurement date.", styles["HulaBody"])])
     action_rows = [["Action", "Owner", "Due", "Status"]] + [[row["title"], row["owner"], row["due"], row["status"]] for row in dataset["report_actions"]]
     action_table = _wrapped_table(action_rows, col_widths=[80 * mm, 40 * mm, 28 * mm, 30 * mm], font_size=7.2)
     story.extend([Spacer(1, 6), action_table])
 
-    story.extend([_paragraph("14. Data-quality appendix", styles["HulaH1"])])
+    story.extend([_paragraph("15. Data-quality appendix", styles["HulaH1"])])
     finding_rows = [["Severity", "Finding", "Evidence", "Required fix"]] + [[row["severity"], row["finding"], row["evidence"], row["required_fix"]] for row in dataset.get("data_quality_findings") or []]
     finding_table = _wrapped_table(finding_rows, col_widths=[20 * mm, 42 * mm, 58 * mm, 58 * mm], font_size=5.9)
     story.extend([finding_table, Spacer(1, 7)])
@@ -267,6 +291,11 @@ def csv_export_bundle(dataset: Mapping[str, Any]) -> bytes:
             "merchant",
             "ai_referrals",
             "reconciliation",
+            "business_rule_register",
+            "attribution_claims",
+            "automation_boundaries",
+            "access_readiness",
+            "ownership_checklist",
         ):
             rows = dataset.get(name) or []
             if not rows:
@@ -284,6 +313,8 @@ def csv_export_bundle(dataset: Mapping[str, Any]) -> bytes:
         definition_writer.writerows(definitions)
         archive.writestr("metric_dictionary.csv", definition_buffer.getvalue().encode("utf-8-sig"))
         archive.writestr("online_summary.json", json.dumps(dataset.get("online_summary") or {}, indent=2, ensure_ascii=False))
+        archive.writestr("profitability_policy.json", json.dumps(dataset.get("profitability_policy") or {}, indent=2, ensure_ascii=False))
+        archive.writestr("paid_media_recommendations.json", json.dumps(dataset.get("paid_media_recommendations") or [], indent=2, ensure_ascii=False))
         archive.writestr("metadata.json", json.dumps(dataset.get("meta") or {}, indent=2, ensure_ascii=False))
         archive.writestr("README.txt", "HULA Marketing Operations fixture export. Values are not live. Attribution sources overlap and must not be summed. Analytics event incidence and the Shopify Online Store summary are separate source views; no complete checkout funnel is claimed.\n")
     return buffer.getvalue()

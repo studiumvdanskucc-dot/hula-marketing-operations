@@ -23,6 +23,28 @@ def test_report_parity_metrics_are_calculated_not_hardcoded_labels() -> None:
     assert values["paid_cac"] is None
 
 
+def test_provisional_profitability_uses_net_revenue_and_costs_of_retained_margin() -> None:
+    dataset = demo_dataset()
+    values = dataset["executive"]
+    assert values["net_revenue"] == pytest.approx(
+        values["gmv"] - values["discounts"] - values["refunds"]
+    )
+    assert values["retained_revenue"] == pytest.approx(values["net_revenue"] * 0.31)
+    assert values["contribution"] == pytest.approx(
+        values["net_revenue"] * 0.31 * 0.90
+    )
+    assert dataset["profitability_policy"]["platform_gmv_roas_floor"] == 4.0
+    assert dataset["profitability_policy"]["contribution_roas_floor"] == 1.0
+
+
+def test_access_audit_does_not_confuse_admin_readiness_with_live_api_sync() -> None:
+    readiness = {row["Provider"]: row for row in demo_dataset()["access_readiness"]}
+    assert readiness["Shopify"]["Admin / ownership audit"].startswith("PASS")
+    assert readiness["Meta / Instagram"]["Admin / ownership audit"].startswith("PASS")
+    assert readiness["Google Ads"]["Admin / ownership audit"].startswith("MISSING")
+    assert {row["Live sync"] for row in readiness.values()} == {"Not connected"}
+
+
 def test_weighted_search_metrics_use_clicks_and_impressions() -> None:
     rows = [
         {"clicks": 10, "impressions": 100, "position": 2},

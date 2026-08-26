@@ -166,7 +166,7 @@ def inject_styles() -> None:
         """,
         unsafe_allow_html=True,
     )
-    # Build 2026.08.16-marketing.4: calm commerce-dashboard visual layer.
+    # Build 2026.08.26-marketing.6: calm commerce dashboard and governed decision layer.
     # This intentionally overrides the earlier brand-heavy prototype without
     # changing its reusable components or business logic.
     st.markdown(
@@ -250,6 +250,39 @@ def inject_styles() -> None:
         .signal-high { border-left:3px solid var(--pink); }
         .signal-medium { border-left:3px solid #c58723; }
         .signal-low,.signal-info { border-left:3px solid var(--teal); }
+        .decision-card { border:1px solid var(--line); border-radius:15px; background:#fff; padding:1.05rem 1.1rem; margin:.7rem 0 .55rem; }
+        .decision-card.compact { padding:.9rem; }
+        .decision-top { display:flex; justify-content:space-between; gap:1rem; align-items:flex-start; padding-bottom:.85rem; border-bottom:1px solid var(--line); }
+        .decision-top h3 { margin:.18rem 0 .2rem; font-size:1.15rem; letter-spacing:-.025em; color:var(--plum); }
+        .decision-top p { margin:0; color:var(--muted); font-size:.69rem; }
+        .decision-source { color:#888286; font-size:.59rem; font-weight:700; letter-spacing:.075em; text-transform:uppercase; }
+        .decision-pill { flex:0 0 auto; border-radius:9px; padding:.58rem .72rem; background:#f3f1ef; color:#514b4f; font-size:.7rem; font-weight:750; }
+        .decision-pill.review { background:#fff2d7; color:#805600; }
+        .decision-pill.hold { background:#f4ebee; color:#7a4055; }
+        .decision-pill.reduce,.decision-pill.pause { background:#fae7e7; color:#9b3939; }
+        .decision-pill.scale { background:var(--teal-soft); color:#1c654f; }
+        .decision-layout { display:grid; grid-template-columns:minmax(0,1.25fr) minmax(320px,.85fr); gap:1.05rem; padding-top:.9rem; }
+        .decision-main { min-width:0; }
+        .decision-metrics { display:grid; grid-template-columns:repeat(4,1fr); gap:.5rem; }
+        .decision-metrics > div { border:1px solid var(--line); border-radius:10px; padding:.68rem .7rem; background:#faf9f7; }
+        .decision-metrics strong { display:block; font-size:1.25rem; letter-spacing:-.035em; color:var(--plum); }
+        .decision-metrics span { display:block; margin-top:.18rem; color:var(--muted); font-size:.61rem; line-height:1.3; }
+        .decision-why { display:flex; gap:.55rem; align-items:flex-start; margin:.8rem 0 .65rem; padding:.75rem .8rem; border-radius:10px; background:#f7f6f3; }
+        .decision-why strong { flex:0 0 auto; font-size:.7rem; color:var(--plum); }
+        .decision-why span { color:#625d60; font-size:.71rem; line-height:1.45; }
+        .decision-confidence { display:inline-block; padding:.4rem .55rem; border-radius:8px; background:#f1eeea; color:#4e494c; font-size:.65rem; font-weight:750; }
+        .decision-blockers { margin-top:.7rem; color:#6e555a; font-size:.68rem; }
+        .decision-blockers strong { color:#8f3543; }
+        .decision-blockers ul { margin:.3rem 0 0; padding-left:1.1rem; line-height:1.45; }
+        .decision-side { display:flex; flex-direction:column; gap:.55rem; }
+        .decision-windows { display:grid; grid-template-columns:repeat(4,1fr); gap:.32rem; }
+        .decision-window { border:1px solid var(--line); border-radius:9px; padding:.5rem; background:#fff; }
+        .decision-window.active { border-color:#dfb4c7; background:var(--pink-soft); }
+        .decision-window strong { display:block; font-size:.7rem; color:var(--plum); }
+        .decision-window span { display:block; margin-top:.1rem; color:var(--muted); font-size:.52rem; line-height:1.3; }
+        .decision-check { border-top:1px solid var(--line); padding-top:.5rem; }
+        .decision-check strong { display:block; color:#3e393c; font-size:.66rem; margin-bottom:.12rem; }
+        .decision-check span { display:block; color:var(--muted); font-size:.62rem; line-height:1.38; }
         .plain-box,.trust-row,.scope-card { border-radius:13px; border-color:var(--line); box-shadow:none; }
         .scope-card { min-height:126px; }
         .scope-icon { background:#f3f1ef; color:#6c656a; }
@@ -291,8 +324,8 @@ def inject_styles() -> None:
             color:var(--plum) !important;
             box-shadow:0 2px 8px rgba(32,28,34,.08) !important;
         }
-        @media (max-width:980px) { .block-container { padding:1.4rem 1.15rem 4rem; } }
-        @media (max-width:780px) { .ops-title { font-size:1.9rem; } .hero-panel { padding:.1rem 0 .65rem; } }
+        @media (max-width:980px) { .block-container { padding:1.4rem 1.15rem 4rem; } .decision-layout { grid-template-columns:1fr; } }
+        @media (max-width:780px) { .ops-title { font-size:1.9rem; } .hero-panel { padding:.1rem 0 .65rem; } .decision-top { flex-direction:column; } .decision-metrics { grid-template-columns:1fr 1fr; } .decision-windows { grid-template-columns:1fr 1fr; } }
         </style>
         """,
         unsafe_allow_html=True,

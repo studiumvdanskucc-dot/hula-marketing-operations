@@ -87,6 +87,39 @@ def test_performance_keeps_source_views_separate(tmp_path, monkeypatch) -> None:
     assert app.get("dataframe")
 
 
+def test_paid_media_decision_card_exposes_evidence_and_fail_closed_state(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DEMO_MODE", "true")
+    monkeypatch.setenv("DEMO_DEFAULT_ROLE", "Administrator")
+    monkeypatch.setenv("MARKETING_DATABASE_PATH", str(tmp_path / "decisions.sqlite3"))
+    app = AppTest.from_file(APP_PATH, default_timeout=45).run()
+    navigation(app).set_value("Performance").run()
+    subnav(app, "Performance view").set_value("Paid media").run()
+    assert not app.exception
+    copy = " ".join(item.value for item in app.markdown)
+    assert "Recommendation: REVIEW" in copy
+    assert "Purchases behind result" in copy
+    assert "Large-order dependency" in copy
+    assert "Inventory check" in copy
+    assert "7d" in copy and "14d" in copy and "28d" in copy and "56d" in copy
+    assert "Claim excess indicator" in copy
+
+
+def test_governance_shows_questionnaire_owners_caps_and_automation_boundary(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DEMO_MODE", "true")
+    monkeypatch.setenv("DEMO_DEFAULT_ROLE", "Administrator")
+    monkeypatch.setenv("MARKETING_DATABASE_PATH", str(tmp_path / "governance.sqlite3"))
+    app = AppTest.from_file(APP_PATH, default_timeout=45).run()
+    navigation(app).set_value("Settings").run()
+    subnav(app, "Settings view").set_value("Governance").run()
+    assert not app.exception
+    copy = " ".join(item.value for item in app.markdown)
+    assert "Business rule register" in copy
+    assert "Google monthly cap" in copy
+    assert "3 of 3" in copy
+    assert "Automation boundary" in copy
+    assert "Ownership and exit readiness" in copy
+
+
 def test_viewer_gets_one_read_only_overview(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("DEMO_MODE", "true")
     monkeypatch.setenv("DEMO_DEFAULT_ROLE", "Viewer")

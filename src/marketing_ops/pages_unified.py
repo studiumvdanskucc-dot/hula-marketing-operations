@@ -19,6 +19,7 @@ from .campaign_ops import (
 )
 from .config import MarketingSettings
 from .connectors.base import Connector
+from .decision_engine import DecisionPolicy, evaluate_paid_media
 from .metric_dictionary import metric_rows
 from .models import ApprovalStatus, Permission, RiskLevel, Role, TaskStatus, UserIdentity
 from .pages_overview import _load_trends
@@ -72,6 +73,155 @@ def _create_signal_task(store: OperationalStore, identity: UserIdentity, signal:
     return store.create_task_from_signal(identity, signal, due_date=due.isoformat())
 
 
+def _decision_policy(settings: MarketingSettings) -> DecisionPolicy:
+    return DecisionPolicy(
+        retained_margin_rate=settings.retained_margin_rate,
+        retained_margin_confirmed=settings.retained_margin_confirmed,
+        returns_refunds_confirmed=settings.returns_refunds_confirmed,
+        forecast_return_rate=settings.forecast_return_rate,
+        forecast_return_rate_confirmed=settings.forecast_return_rate_confirmed,
+        variable_cost_rate_of_retained=settings.variable_cost_rate_of_retained,
+        variable_cost_confirmed=settings.variable_cost_confirmed,
+        platform_gmv_roas_floor=settings.platform_gmv_roas_floor,
+        contribution_roas_floor=settings.contribution_roas_floor,
+        contribution_roas_scale_target=settings.contribution_roas_scale_target,
+        minimum_purchases=settings.minimum_paid_purchases,
+        max_paid_cac_hkd=settings.max_paid_cac_hkd,
+        payback_window_days=settings.payback_window_days,
+        google_monthly_cap_hkd=settings.google_monthly_cap_hkd,
+        meta_monthly_cap_hkd=settings.meta_monthly_cap_hkd,
+        max_internal_reallocation_pct=settings.max_internal_reallocation_pct,
+        normalized_click_window_days=settings.normalized_click_window_days,
+        major_change_approvers=settings.major_change_approvers,
+    )
+
+
+def _ratio(value: float | None) -> str:
+    return "—" if value is None else f"{value:.2f}x"
+
+
+def _recommendation_task(
+    store: OperationalStore,
+    identity: UserIdentity,
+    card: dict[str, Any],
+    result: Any,
+) -> str:
+    selected = next(
+        row for row in card["windows"] if row["days"] == card["selected_days"]
+    )
+    return store.create_task(
+        identity,
+        title=f"{result.decision}: {card['campaign']}",
+        description=result.reason,
+        problem_type="Paid-media recommendation",
+        source_system=card["channel"],
+        source_entity=card["campaign"],
+        evidence={
+            "selected_window_days": card["selected_days"],
+            "spend_hkd": selected["spend"],
+            "platform_attributed_gmv_hkd": selected["attributed_gmv"],
+            "purchases": selected["purchases"],
+            "platform_roas": result.platform_roas,
+            "retained_roas_proxy": result.retained_roas_proxy,
+            "contribution_roas": result.contribution_roas,
+            "blockers": list(result.blockers),
+            "data_mode": "fixture",
+        },
+        severity="High" if result.decision in {"PAUSE", "REDUCE", "REVIEW"} else "Medium",
+        recommended_action="Resolve the blockers, verify live inventory and review the proposed decision. No external change is authorized.",
+        owner=card["owner"],
+        due_date=(date.today() + timedelta(days=7)).isoformat(),
+        business_impact="Protect contribution and prevent paid-media decisions based on GMV ROAS alone.",
+        confidence={"Low": 0.35, "Low / Medium": 0.5, "Medium": 0.7, "High": 0.9}.get(result.confidence, 0.5),
+        playbook=(
+            "Verify platform values under the stated attribution window.",
+            "Confirm HULA contribution inputs and the campaign threshold.",
+            "Check every promoted product or collection against live inventory.",
+            "Prepare a manual proposal and collect required approvals.",
+            "Measure the next complete review window and record the outcome.",
+        ),
+        success_measure="Decision is supported by approved contribution inputs, sufficient purchases, live inventory and a recorded review trigger.",
+        deduplication_key=f"paid-decision:{card['id']}:{card['selected_days']}d",
+        data_mode="fixture",
+    )
+
+
+def _paid_recommendation_card(
+    card: dict[str, Any],
+    settings: MarketingSettings,
+    *,
+    store: OperationalStore | None = None,
+    identity: UserIdentity | None = None,
+    compact: bool = False,
+) -> None:
+    selected = next(
+        row for row in card["windows"] if row["days"] == card["selected_days"]
+    )
+    policy = _decision_policy(settings)
+    result = evaluate_paid_media(
+        attributed_gmv=float(selected["attributed_gmv"]),
+        spend=float(selected["spend"]),
+        purchases=int(selected["purchases"]),
+        order_values=card["order_values"],
+        median_order_value=card.get("median_order_value"),
+        inventory_available=card.get("inventory_available"),
+        channel=card["channel"],
+        policy=policy,
+    )
+    window_cells = "".join(
+        '<div class="decision-window%s"><strong>%sd</strong><span>%s · %s purchases</span></div>'
+        % (
+            " active" if row["days"] == card["selected_days"] else "",
+            row["days"],
+            _ratio(float(row["attributed_gmv"]) / float(row["spend"]) if row["spend"] else None),
+            row["purchases"],
+        )
+        for row in card["windows"]
+    )
+    blockers = "".join(f"<li>{html.escape(item)}</li>" for item in result.blockers)
+    contribution_label = _ratio(result.contribution_roas)
+    largest = "—" if result.large_order_share_pct is None else f"{result.large_order_share_pct:.1f}%"
+    one_more = _ratio(result.one_more_order_contribution_roas)
+    approvers = " + ".join(policy.major_change_approvers)
+    st.markdown(
+        f'<div class="decision-card{" compact" if compact else ""}">'
+        '<div class="decision-top"><div>'
+        f'<div class="decision-source">{html.escape(card["channel"])} · {card["selected_days"]}-day view · fixture</div>'
+        f'<h3>{html.escape(card["campaign"])}</h3>'
+        f'<p>{html.escape(card["classification"])}</p></div>'
+        f'<div class="decision-pill {result.decision.lower()}">Recommendation: {result.decision}</div></div>'
+        '<div class="decision-layout"><div class="decision-main">'
+        '<div class="decision-metrics">'
+        f'<div><strong>{_ratio(result.platform_roas)}</strong><span>Platform GMV ROAS</span></div>'
+        f'<div><strong>{selected["purchases"]}</strong><span>Purchases behind result</span></div>'
+        f'<div><strong>{contribution_label}</strong><span>Contribution ROAS</span></div>'
+        f'<div><strong>{_ratio(result.break_even_gmv_roas)}</strong><span>Break-even platform ROAS</span></div>'
+        '</div>'
+        f'<div class="decision-why"><strong>Why</strong><span>{html.escape(result.reason)}</span></div>'
+        f'<div class="decision-confidence">Confidence: {html.escape(result.confidence)}</div>'
+        f'{"" if not blockers else f"<div class=\"decision-blockers\"><strong>Blocking inputs</strong><ul>{blockers}</ul></div>"}'
+        '</div><div class="decision-side">'
+        f'<div class="decision-windows">{window_cells}</div>'
+        f'<div class="decision-check"><strong>Large-order dependency</strong><span>Largest order is {largest} of attributed value. Platform ROAS without it: {_ratio(result.roas_excluding_largest)}.</span></div>'
+        f'<div class="decision-check"><strong>One-more-order sensitivity</strong><span>Contribution ROAS after one median order: {one_more}. Scenario uses the configured margin, cost and return assumptions.</span></div>'
+        f'<div class="decision-check"><strong>Inventory check</strong><span>{html.escape(card["inventory_status"])}</span></div>'
+        f'<div class="decision-check"><strong>Next review</strong><span>{html.escape(card["next_review_trigger"])}</span></div>'
+        f'<div class="decision-check"><strong>Approval</strong><span>{html.escape(approvers)} required for a major change. Approval still does not execute a live action.</span></div>'
+        '</div></div></div>',
+        unsafe_allow_html=True,
+    )
+    if compact:
+        return
+    if store is not None and identity is not None and has_permission(identity.role, Permission.MANAGE_TASKS):
+        if st.button(
+            "Add recommendation to workboard",
+            key=f"decision_task_{card['id']}",
+            type="primary",
+        ):
+            task_id = _recommendation_task(store, identity, card, result)
+            st.success(f"Recommendation added · {task_id[:8]}. No external system was changed.")
+
+
 def _signal_queue(dataset: dict[str, Any], store: OperationalStore, identity: UserIdentity, *, limit: int = 5) -> None:
     signals = detect_business_signals(dataset)[:limit]
     for index, signal in enumerate(signals):
@@ -96,7 +246,13 @@ def _signal_queue(dataset: dict[str, Any], store: OperationalStore, identity: Us
                     st.caption("Review only")
 
 
-def render_home(dataset: dict[str, Any], store: OperationalStore, identity: UserIdentity, root: Path) -> None:
+def render_home(
+    dataset: dict[str, Any],
+    store: OperationalStore,
+    identity: UserIdentity,
+    root: Path,
+    settings: MarketingSettings,
+) -> None:
     del root  # Trend Intelligence remains available from Work → Content & SEO.
     page_header(
         "Administrator overview",
@@ -113,39 +269,41 @@ def render_home(dataset: dict[str, Any], store: OperationalStore, identity: User
     cols = st.columns(4)
     with cols[0]:
         kpi_card(
-            "Total sales",
-            _hkd(values["commerce_revenue"]),
-            source="Shopify / POS",
-            definition="Booked commerce source of truth; attribution claims are kept separate.",
-            delta=f"{values['yoy_pct']:+.1f}% year on year",
+            "GMV",
+            _hkd(values["gmv"]),
+            source="Shopify / Report Pundit",
+            definition="Gross merchandise value from commerce only; no channel claims are added.",
+            delta=f"{values['orders']:,} actual orders",
             tone="violet",
         )
     with cols[1]:
         kpi_card(
-            "Orders",
-            f"{values['orders']:,}",
-            source="Shopify / POS",
-            definition="Included orders under the current commerce definition.",
-            delta=f"AOV {_hkd(values['aov'])}",
+            "HULA retained revenue",
+            _hkd(values["retained_revenue"]),
+            source="Provisional rule",
+            definition="Shopify net revenue after actual refunds multiplied by the configurable provisional 31% retained-margin rate.",
+            delta=values["retained_revenue_status"],
             tone="pink",
+            warning=not settings.retained_margin_confirmed,
         )
     with cols[2]:
+        kpi_card(
+            "Contribution",
+            _hkd(values["contribution"]) if values["contribution"] is not None else "Awaiting policy",
+            source="HULA provisional calculation",
+            definition="Retained revenue less payment fees and shipping, currently 10% of retained margin. Actual refunds are already deducted.",
+            delta=values["contribution_status"],
+            tone="coral",
+            warning=not settings.retained_margin_confirmed,
+        )
+    with cols[3]:
         kpi_card(
             "Paid-media spend",
             _hkd(values["paid_spend"]),
             source="Google + Meta",
-            definition="Media cost only. Platform-attributed value remains separate from booked revenue.",
-            delta=f"Platform ROAS {values['blended_roas']:.2f}x",
+            definition="Media cost; self-reported channel revenue remains separate from commerce truth.",
+            delta=f"Blended MER {values['mer']:.2f}x · {len(open_tasks)} open actions",
             tone="teal",
-        )
-    with cols[3]:
-        kpi_card(
-            "Open actions",
-            str(len(open_tasks)),
-            source="Workboard",
-            definition="Tasks not completed or cancelled, with a named owner and due date.",
-            delta=f"{len(pending)} awaiting approval · {critical_findings} data warning(s)",
-            tone="coral",
             warning=bool(critical_findings or pending),
         )
 
@@ -200,7 +358,9 @@ def render_home(dataset: dict[str, Any], store: OperationalStore, identity: User
         dataframe(rows, height=220)
 
 
-def render_viewer_overview(dataset: dict[str, Any], identity: UserIdentity) -> None:
+def render_viewer_overview(
+    dataset: dict[str, Any], identity: UserIdentity, settings: MarketingSettings
+) -> None:
     """Single, deliberately read-only view for HULA leadership and sales."""
 
     page_header(
@@ -251,6 +411,10 @@ def render_viewer_overview(dataset: dict[str, Any], identity: UserIdentity) -> N
             with right:
                 st.caption(f"{signal.severity.value} · {signal.owner_role.value}")
                 st.write(signal.recommended_action)
+    section("Current paid-media decision", "Read-only")
+    _paid_recommendation_card(
+        dataset["paid_media_recommendations"][0], settings, compact=True
+    )
     st.caption(f"Signed in as {identity.display_name} · Viewer. This page is read-only.")
 
 
@@ -481,7 +645,12 @@ def _task_workboard(store: OperationalStore, identity: UserIdentity) -> None:
                 st.error(str(exc))
 
 
-def _work_actions(dataset: dict[str, Any], store: OperationalStore, identity: UserIdentity) -> None:
+def _work_actions(
+    dataset: dict[str, Any],
+    store: OperationalStore,
+    identity: UserIdentity,
+    settings: MarketingSettings,
+) -> None:
     signals = detect_business_signals(dataset)
     tasks = store.list_tasks()
     open_tasks = [row for row in tasks if row.get("status") not in DONE_STATES]
@@ -496,6 +665,13 @@ def _work_actions(dataset: dict[str, Any], store: OperationalStore, identity: Us
 
     section("Recommendations", "Prioritized")
     section_copy("Each recommendation keeps its source, evidence, confidence, proposed action and success measure. Nothing is executed automatically.")
+    _paid_recommendation_card(
+        dataset["paid_media_recommendations"][0],
+        settings,
+        store=store,
+        identity=identity,
+    )
+    section("Other signals", "Rules engine")
     _signal_queue(dataset, store, identity, limit=5)
     _task_workboard(store, identity)
     with st.expander("Approvals"):
@@ -504,7 +680,13 @@ def _work_actions(dataset: dict[str, Any], store: OperationalStore, identity: Us
         _experiments(dataset, store, identity)
 
 
-def render_work(dataset: dict[str, Any], store: OperationalStore, identity: UserIdentity, root: Path) -> None:
+def render_work(
+    dataset: dict[str, Any],
+    store: OperationalStore,
+    identity: UserIdentity,
+    root: Path,
+    settings: MarketingSettings,
+) -> None:
     if identity.role is not Role.ADMINISTRATOR:
         st.error("Work is available only to the Administrator.")
         return
@@ -516,7 +698,7 @@ def render_work(dataset: dict[str, Any], store: OperationalStore, identity: User
     data_banner(dataset["meta"])
     view = _subnav("Work view", ["Actions", "Campaigns", "Content & SEO"], key="work_subnav")
     if view == "Actions":
-        _work_actions(dataset, store, identity)
+        _work_actions(dataset, store, identity, settings)
     elif view == "Campaigns":
         _campaign_workroom(store, identity)
         with st.expander("Create a campaign"):
@@ -750,18 +932,37 @@ def render_content_seo(dataset: dict[str, Any], store: OperationalStore, identit
         _trend_handoff(dataset, store, identity, root)
 
 
-def _business_truth(dataset: dict[str, Any]) -> None:
+def _business_truth(dataset: dict[str, Any], settings: MarketingSettings) -> None:
     values = dataset["executive"]
     online = dataset["online_summary"]
     cols = st.columns(4)
     with cols[0]:
-        kpi_card("Commerce revenue", _hkd(values["commerce_revenue"]), source="Shopify / POS", definition="Headline booked commerce for the reporting period.", delta=f"{values['yoy_pct']:+.1f}% YoY", tone="violet")
+        kpi_card("GMV", _hkd(values["gmv"]), source="Shopify / Report Pundit", definition="Gross merchandise value from the commerce ledger only.", delta=f"{values['orders']:,} actual orders", tone="violet")
     with cols[1]:
-        kpi_card("Online Store revenue", _hkd(online["revenue"]), source="Shopify", definition="Online Store row only; physical-store revenue is not mixed into web conversion.", delta="84 online orders", tone="pink")
+        kpi_card("HULA retained revenue", _hkd(values["retained_revenue"]), source="Configured rule" if settings.retained_margin_confirmed else "Provisional 31%", definition="Shopify net revenue after actual refunds multiplied by the configurable retained-margin rate.", delta=values["retained_revenue_status"], tone="pink", warning=not settings.retained_margin_confirmed)
     with cols[2]:
-        kpi_card("Channel-chart coverage", f"{values['channel_chart_coverage_pct']:.1f}%", source="Agency report", definition="Displayed channel rows divided by headline revenue; rows also use overlapping attribution.", delta="46.3% is not represented", tone="coral", warning=True)
+        kpi_card("Contribution", _hkd(values["contribution"]) if values["contribution"] is not None else "Unavailable", source="HULA provisional calculation", definition="Retained revenue less payment fees and shipping, currently estimated at 10% of retained margin. Actual refunds are already in net revenue.", delta=values["contribution_status"], tone="coral", warning=not settings.retained_margin_confirmed)
     with cols[3]:
-        kpi_card("Paid CAC", "Unavailable", source="Governed metric", definition="Paid-acquired new customers are not reliably identified in the supplied report.", delta=f"Proxy only: {_hkd(values['spend_per_all_new_customer'], 2)} per all new customer", tone="teal", warning=True)
+        kpi_card("Blended MER", f"{values['mer']:.2f}x", source="Shopify + ad spend", definition="Booked commerce revenue divided by Google and Meta spend; no attribution required.", delta=f"Paid spend {_hkd(values['paid_spend'])}", tone="teal")
+
+    section("Profitability bridge", "Three different questions")
+    section_copy("GMV describes trading volume. Shopify net revenue removes recorded discounts and refunds. Retained revenue describes HULA's share, and contribution removes payment fees and shipping. The app will not substitute one for another or deduct actual refunds twice.")
+    variable_cost_value = (
+        None
+        if values["retained_revenue"] is None or values["contribution"] is None
+        else values["retained_revenue"] - values["contribution"]
+    )
+    bridge = [
+        {"Stage": "1 · GMV", "Value": _hkd(values["gmv"]), "Status": "Available", "Source / definition": "Shopify / Report Pundit commerce export"},
+        {"Stage": "2 · Discounts", "Value": f"−{_hkd(values['discounts'])}", "Status": "Recorded", "Source / definition": "Shopify discounts in the reporting period"},
+        {"Stage": "3 · Refunds", "Value": f"−{_hkd(values['refunds'])}", "Status": "Recorded", "Source / definition": "Actual Shopify refunds reduce revenue once"},
+        {"Stage": "4 · Shopify net revenue", "Value": _hkd(values["net_revenue"]), "Status": "Available", "Source / definition": "GMV less recorded discounts and refunds"},
+        {"Stage": "5 · HULA retained revenue", "Value": _hkd(values["retained_revenue"]), "Status": "Configured" if settings.retained_margin_confirmed else "Provisional", "Source / definition": values["retained_revenue_status"]},
+        {"Stage": "6 · Payment fees + shipping", "Value": f"−{_hkd(variable_cost_value)}" if variable_cost_value is not None else "—", "Status": "Configured proxy", "Source / definition": "10% of retained margin; configurable"},
+        {"Stage": "7 · Contribution", "Value": _hkd(values["contribution"]) if values["contribution"] is not None else "—", "Status": "Provisional" if values["contribution"] is not None else "Unavailable", "Source / definition": values["contribution_status"]},
+    ]
+    dataframe(bridge, height=310)
+    trust_row("Recommendations are fail-closed", "The app can calculate a provisional contribution scenario, but SCALE remains blocked until the 31% rate, 10% forecast return provision, scale target, purchase threshold, budgets and live inventory are approved or connected.", warning=True)
 
     section("Booked revenue by location", "Commerce truth")
     stores = pd.DataFrame(dataset["stores"])
@@ -801,7 +1002,12 @@ def _business_truth(dataset: dict[str, Any]) -> None:
         st.info(online["note"])
 
 
-def _paid_media(dataset: dict[str, Any], store: OperationalStore, identity: UserIdentity) -> None:
+def _paid_media(
+    dataset: dict[str, Any],
+    store: OperationalStore,
+    identity: UserIdentity,
+    settings: MarketingSettings,
+) -> None:
     google = dataset["google_campaigns"]
     meta = dataset["meta_campaigns"]
     google_spend = sum(row["spend"] for row in google)
@@ -817,6 +1023,30 @@ def _paid_media(dataset: dict[str, Any], store: OperationalStore, identity: User
         kpi_card("Meta spend", _hkd(meta_spend), source="Meta Ads", definition="Platform cost for displayed campaigns.", delta="July report fixture", tone="teal")
     with cols[3]:
         kpi_card("Meta ROAS", f"{meta_value / meta_spend:.2f}x", source="Meta Ads", definition="Meta-attributed purchase value divided by Meta spend.", delta="Seven-day window in supplied report", tone="coral")
+    st.warning("Platform ROAS is a diagnostic signal—not the profitability decision. With the current provisional assumptions, gross/platform break-even is about 4.0x and contribution ROAS break-even is 1.0x. SCALE remains blocked until the remaining policy and live-data checks are complete.")
+
+    section("Decision cards", "ROAS is never shown alone")
+    section_copy("Every decision shows the purchase count, multiple time windows, large-order sensitivity, inventory state, confidence, blockers, owner and next review trigger.")
+    for card in dataset["paid_media_recommendations"]:
+        _paid_recommendation_card(card, settings, store=store, identity=identity)
+
+    section("Attribution comparison", "Commerce truth stays separate")
+    policy = dataset["attribution_policy"]
+    cols = st.columns(3)
+    with cols[0]:
+        kpi_card("Actual Shopify orders", f"{dataset['executive']['orders']:,}", source="Shopify / Report Pundit", definition="All actual commerce orders in the supplied reporting scope.", delta="Never replaced by platform claims", tone="violet")
+    with cols[1]:
+        kpi_card("Paid claimed orders", str(policy["paid_claimed_orders"]), source="Google + Meta", definition="Self-reported platform orders; the same order may be claimed more than once.", delta="Not additive revenue", tone="pink")
+    with cols[2]:
+        kpi_card("Claim excess indicator", "Unavailable", source="Governed comparison", definition="Sum of comparable platform-claimed orders minus same-scope Shopify orders.", delta="Same-scope Shopify order set is missing", tone="coral", warning=True)
+    dataframe(
+        dataset["attribution_claims"],
+        height=220,
+        column_config={"Claimed GMV": st.column_config.NumberColumn("Claimed GMV", format="HK$ %.2f")},
+    )
+    trust_row("Why the overlap figure is not calculated yet", policy["claim_excess_status"], warning=True)
+    st.caption("Management default: normalized 7-day click-only comparison for Google and Meta where the APIs support it. Platform-native settings remain visible separately; Klaviyo remains in its own block.")
+
     section("Google Ads", "Specialist review")
     dataframe(google, height=300, column_config={"spend": st.column_config.NumberColumn("Spend", format="HK$ %.2f"), "purchase_value": st.column_config.NumberColumn("Attributed value", format="HK$ %.2f"), "roas": st.column_config.NumberColumn("ROAS", format="%.2fx")})
     section("Meta Ads", "Creative and conversion review")
@@ -826,8 +1056,8 @@ def _paid_media(dataset: dict[str, Any], store: OperationalStore, identity: User
 
 
 def _email_local(dataset: dict[str, Any]) -> None:
-    section("Email performance", "Klaviyo — 90-day attribution")
-    trust_row("Platform-attributed, not exclusive revenue", "The supplied report attributes purchases within 90 days of an email. These values may overlap Meta, Google, direct and Shopify revenue.", warning=True)
+    section("Email performance", "Klaviyo — supplied report uses 90 days")
+    trust_row("Platform-attributed, not exclusive revenue", "The supplied report attributes purchases within 90 days of an email. Verify the current Klaviyo account setting; these values may overlap Meta, Google, direct and Shopify revenue.", warning=True)
     dataframe(dataset["klaviyo"], height=330, column_config={"revenue": st.column_config.NumberColumn("Attributed revenue", format="HK$ %.2f"), "open_rate": st.column_config.NumberColumn("Open rate", format="%.1f%%"), "click_rate": st.column_config.NumberColumn("Click rate", format="%.1f%%")})
     section("Store visibility", "Google Business Profile")
     dataframe(dataset["gbp"], height=240)
@@ -852,7 +1082,12 @@ def _quality(dataset: dict[str, Any]) -> None:
     dataframe(metric_rows(), height=500)
 
 
-def render_performance(dataset: dict[str, Any], store: OperationalStore, identity: UserIdentity) -> None:
+def render_performance(
+    dataset: dict[str, Any],
+    store: OperationalStore,
+    identity: UserIdentity,
+    settings: MarketingSettings,
+) -> None:
     page_header(
         "Performance",
         "Explore the numbers behind the overview.",
@@ -862,9 +1097,9 @@ def render_performance(dataset: dict[str, Any], store: OperationalStore, identit
     reporting_controls(dataset["meta"], key="performance")
     view = _subnav("Performance view", ["Business truth", "Paid media", "Email & local", "Customers & discovery", "Data quality"], key="performance_subnav")
     if view == "Business truth":
-        _business_truth(dataset)
+        _business_truth(dataset, settings)
     elif view == "Paid media":
-        _paid_media(dataset, store, identity)
+        _paid_media(dataset, store, identity, settings)
     elif view == "Email & local":
         _email_local(dataset)
     elif view == "Customers & discovery":
@@ -884,6 +1119,10 @@ def _connections(
         st.error("One or more external-write flags are enabled. Review the environment immediately.")
     else:
         st.success("External publishing, sending and budget changes are OFF.")
+    section("API readiness", "Ownership is not the same as a live connection")
+    section_copy("The 26 August audit confirmed administrative readiness for Shopify and Meta, but it did not create credentials or connect live data. Google Ads access is still missing.")
+    dataframe(dataset["access_readiness"], height=285)
+    section("Connector configuration", "Read-only tests")
     rows = []
     for name, connector in connectors.items():
         validation = connector.validate_config()
@@ -900,11 +1139,14 @@ def _connections(
     if result:
         (st.success if result.success else st.warning)(result.message)
         st.json({"state": result.state.value, "checked_at": result.checked_at, "account": result.account_label, "api_version": result.api_version, "permissions": list(result.permissions), "detail": result.detail})
-    if has_permission(identity.role, Permission.MANAGE_TASKS) and validation.valid and selected_name in {"Shopify", "Google Analytics 4", "Google Search Console"}:
+    if has_permission(identity.role, Permission.MANAGE_TASKS) and validation.valid and selected_name in {"Shopify", "Google Analytics 4", "Google Search Console", "Meta Ads"}:
         if st.button("Queue read-only sync", key="unified_queue_sync"):
             digest = hashlib.sha256(f"{selected_name}:{date.today().isoformat()}".encode()).hexdigest()[:20]
             job_id = store.enqueue_job(identity, f"sync_{selected_name.lower().replace(' ', '_')}", {"provider": selected_name, "mode": "read_only", "window": "last_7_complete_days"}, idempotency_key=f"sync:{digest}")
             st.success(f"Read-only job queued · {job_id[:8]}")
+    section("Agency handover dependency", "Do not assume ownership")
+    section_copy("A healthy API test does not prove HULA owns the account, billing, recovery method, connector or cloud project. Record ownership separately before GoodSauce access is removed.")
+    dataframe(dataset["ownership_checklist"], height=340)
 
 
 def _reports(dataset: dict[str, Any], identity: UserIdentity) -> None:
@@ -923,7 +1165,34 @@ def _reports(dataset: dict[str, Any], identity: UserIdentity) -> None:
     st.caption("The export is clearly labelled fixture/draft until live sources reconcile.")
 
 
-def _governance(store: OperationalStore) -> None:
+def _governance(
+    dataset: dict[str, Any], store: OperationalStore, settings: MarketingSettings
+) -> None:
+    section("Business rule register", "Confirmed, provisional and blocking")
+    section_copy("These answers came from the HULA questionnaire. Provisional and blocking items remain visible until the named owner approves a dated definition.")
+    dataframe(dataset["business_rule_register"], height=410)
+
+    section("Budgets and approvals", "Hard limits before automation")
+    approvers = " + ".join(settings.major_change_approvers)
+    cols = st.columns(4)
+    with cols[0]:
+        kpi_card("Google monthly cap", _hkd(settings.google_monthly_cap_hkd) if settings.google_monthly_cap_hkd is not None else "Not set", source="HULA policy", definition="Maximum monthly Google Ads spend.", delta="Blocking automation", tone="coral", warning=settings.google_monthly_cap_hkd is None)
+    with cols[1]:
+        kpi_card("Meta monthly cap", _hkd(settings.meta_monthly_cap_hkd) if settings.meta_monthly_cap_hkd is not None else "Not set", source="HULA policy", definition="Maximum monthly Meta Ads spend.", delta="Blocking automation", tone="coral", warning=settings.meta_monthly_cap_hkd is None)
+    with cols[2]:
+        kpi_card("Major-change approval", "3 of 3", source="HULA policy", definition="All named approvers must confirm major paid-media changes.", delta=approvers, tone="violet")
+    with cols[3]:
+        kpi_card("External actions", "OFF", source="Safety control", definition="Approval creates an auditable decision; it does not execute a platform write.", delta="Fail-closed", tone="teal")
+    st.caption("Budget reductions and pauses may be proposed to Sarah, Elena or Tiffany. Major changes and all total-spend increases require Sarah + Elena + Tiffany. Identity-specific multi-approval must be implemented before any live write path is enabled.")
+
+    section("Automation boundary", "Candidate does not mean enabled")
+    dataframe(dataset["automation_boundaries"], height=370)
+    trust_row("Every candidate automation is currently OFF", "Contribution rules, hard budgets, action ranges, live data validation and identity-specific approvals must all be complete before a write capability can be considered.", warning=True)
+
+    section("Ownership and exit readiness", "Tiffany + Sarah")
+    section_copy("The GoodSauce dashboard itself is optional. HULA needs permanent control of the underlying accounts, data, recovery methods and any connector/API dependencies required by the new system.")
+    dataframe(dataset["ownership_checklist"], height=380)
+
     section("Access permissions", "Two access levels")
     dataframe(permission_matrix_rows(), height=390)
     section("Audit history", "Who decided what")
@@ -956,4 +1225,4 @@ def render_settings(
     elif view == "Reports":
         _reports(dataset, identity)
     else:
-        _governance(store)
+        _governance(dataset, store, settings)

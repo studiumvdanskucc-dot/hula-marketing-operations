@@ -10,6 +10,7 @@ from .metrics import (
     reconciliation_row,
     seo_opportunity_score,
 )
+from .decision_engine import contribution_value, retained_revenue_proxy
 
 
 REFERENCE_PERIOD = "1–31 July 2026"
@@ -120,12 +121,26 @@ def _build() -> dict[str, Any]:
     google_value = 148_913.65
     meta_value = 84_986.32
     new_customers = 167
+    provisional_retained_margin_rate = 0.31
+    payment_shipping_rate_of_retained = 0.10
+    net_revenue = 2_438_910.0
     store_sum = 1_140_489.49 + 959_061.92 + 420_178.15 + 800.0
     channel_chart_sum = 1_002_811.03 + 148_913.65 + 100_372.87 + 84_986.32
     executive = {
         "commerce_revenue": total_revenue,
-        "net_revenue": 2_438_910.0,
+        "net_revenue": net_revenue,
         "gross_sales": 2_620_882.0,
+        "gmv": 2_620_882.0,
+        "retained_revenue": retained_revenue_proxy(
+            net_revenue, provisional_retained_margin_rate
+        ),
+        "retained_revenue_status": "Provisional 31% of Shopify net revenue — configurable",
+        "contribution": contribution_value(
+            net_revenue,
+            provisional_retained_margin_rate,
+            payment_shipping_rate_of_retained,
+        ),
+        "contribution_status": "Provisional — actual refunds deducted once; payment fees + shipping are 10% of retained margin",
         "refunds": 51_473.0,
         "discounts": 130_499.0,
         "orders": 409,
@@ -164,6 +179,50 @@ def _build() -> dict[str, Any]:
         {"campaign": "Focus (Sales)", "status": "Active", "spend": 10_885.0, "reach": 118_420, "impressions": 221_700, "frequency": 1.87, "clicks": 3_312, "ctr": 1.49, "purchases": 17, "purchase_value": 84_986.32, "roas": 7.81, "creative": "So Low I'm Sold"},
         {"campaign": "HULA Awareness", "status": "Active", "spend": 3_110.25, "reach": 55_880, "impressions": 163_800, "frequency": 2.93, "clicks": 2_240, "ctr": 1.37, "purchases": 0, "purchase_value": 0.0, "roas": 0.0, "creative": "HULA Brand Story"},
         {"campaign": "Bags Retargeting", "status": "Active", "spend": 1_450.0, "reach": 8_600, "impressions": 35_500, "frequency": 4.13, "clicks": 210, "ctr": 0.59, "purchases": 0, "purchase_value": 0.0, "roas": 0.0, "creative": "New Arrivals Bags"},
+    ]
+    paid_media_recommendations = [
+        {
+            "id": "google-account-july-2026",
+            "channel": "Google Ads",
+            "campaign": "Google Ads — shown campaigns",
+            "classification": "Mixed account view: Brand, Performance Max and Competitor",
+            "selected_days": 28,
+            "windows": [
+                {"days": 7, "spend": 3_900.0, "attributed_gmv": 35_000.0, "purchases": 5},
+                {"days": 14, "spend": 7_500.0, "attributed_gmv": 72_400.0, "purchases": 12},
+                {"days": 28, "spend": 14_953.35, "attributed_gmv": 148_913.65, "purchases": 25},
+                {"days": 56, "spend": 28_200.0, "attributed_gmv": 237_000.0, "purchases": 39},
+            ],
+            "order_values": [48_000, 12_000, 10_000, 9_000, 8_000, 7_000, 6_000, 5_500, 5_000, 4_500, 4_000, 3_500, 3_200, 3_000, 2_800, 2_500, 2_300, 2_100, 1_900, 1_700, 1_500, 1_200, 1_000, 800, 2_413.65],
+            "median_order_value": 3_820.0,
+            "inventory_available": None,
+            "inventory_status": "Not connected — verify live destinations before any change",
+            "native_attribution": "Account setting not stated in the supplied report",
+            "management_attribution": "7-day click-only comparison planned",
+            "next_review_trigger": "After the return provision, scale target, purchase threshold and hard cap are approved, or at the next 28-day review",
+            "owner": "Paid-media specialist",
+        },
+        {
+            "id": "meta-focus-sales-july-2026",
+            "channel": "Meta Ads",
+            "campaign": "Focus (Sales)",
+            "classification": "Sales campaign",
+            "selected_days": 28,
+            "windows": [
+                {"days": 7, "spend": 4_100.0, "attributed_gmv": 21_500.0, "purchases": 4},
+                {"days": 14, "spend": 7_650.0, "attributed_gmv": 45_100.0, "purchases": 9},
+                {"days": 28, "spend": 10_885.0, "attributed_gmv": 84_986.32, "purchases": 17},
+                {"days": 56, "spend": 28_800.0, "attributed_gmv": 139_000.0, "purchases": 29},
+            ],
+            "order_values": [29_500, 10_000, 8_000, 7_000, 6_000, 5_000, 4_500, 3_500, 3_000, 2_500, 2_000, 1_500, 1_000, 500, 400, 300, 286.32],
+            "median_order_value": 3_820.0,
+            "inventory_available": None,
+            "inventory_status": "Not connected — verify live products and collections",
+            "native_attribution": "Seven-day attribution stated in the supplied report; click/view mix must be confirmed",
+            "management_attribution": "7-day click-only comparison planned",
+            "next_review_trigger": "After remaining policy inputs are approved or five more purchases are recorded",
+            "owner": "Paid-media specialist",
+        },
     ]
     session_behaviour = [
         {"event": "Session start", "count": 57_585, "share_of_session_starts_pct": 100.00},
@@ -233,6 +292,82 @@ def _build() -> dict[str, Any]:
         {"severity": "High", "finding": "Store conversion is shown as 0.00%", "evidence": "Physical stores have orders but naturally do not have web sessions or add-to-cart events.", "required_fix": "Show physical-store web conversion as not applicable; use footfall only if a reliable denominator exists.", "owner": "Metric owner"},
         {"severity": "High", "finding": "Unsupported combined online funnel", "evidence": "The report states 57,585 session starts, 35,081 view-item events and 851 analytics add-to-cart events; it does not state 98,280 sessions or 347 checkouts.", "required_fix": "Keep analytics event incidence separate from the Shopify online summary and show checkout as unavailable.", "owner": "Marketing analyst"},
     ]
+    profitability_policy = {
+        "retained_margin_rate": provisional_retained_margin_rate,
+        "retained_margin_confirmed": False,
+        "returns_refunds_confirmed": True,
+        "forecast_return_rate": 0.10,
+        "forecast_return_rate_confirmed": False,
+        "variable_cost_rate_of_retained": payment_shipping_rate_of_retained,
+        "variable_cost_confirmed": True,
+        "platform_gmv_roas_floor": 4.0,
+        "contribution_roas_floor": 1.0,
+        "contribution_roas_scale_target": None,
+        "minimum_purchases": None,
+        "max_paid_cac_hkd": None,
+        "payback_window_days": None,
+        "google_monthly_cap_hkd": None,
+        "meta_monthly_cap_hkd": None,
+        "max_internal_reallocation_pct": None,
+        "normalized_click_window_days": 7,
+        "major_change_approvers": ["Sarah", "Elena", "Tiffany"],
+        "all_major_approvers_required": True,
+    }
+    business_rule_register = [
+        {"Rule": "Commerce source of truth", "Current answer": "Shopify, with Report Pundit used for reporting", "Status": "Confirmed", "Owner / next step": "Data owner — validate the live order/refund export"},
+        {"Rule": "Retained margin", "Current answer": "Approximately 31% overall", "Status": "Provisional", "Owner / next step": "Sarah — confirm definition and effective date"},
+        {"Rule": "Sale-period discount", "Current answer": "Shared between seller and HULA; case-dependent", "Status": "Needs formula", "Owner / next step": "Sarah — document allocation rule"},
+        {"Rule": "Outside-sale discount", "Current answer": "Seller side", "Status": "Needs formula", "Owner / next step": "Sarah — document exceptions"},
+        {"Rule": "HULA voucher", "Current answer": "Funded by HULA; HELLOHULA is HK$250 above HK$3,500", "Status": "Confirmed concept", "Owner / next step": "Finance — verify accounting treatment"},
+        {"Rule": "Actual refunds", "Current answer": "Deduct from total Shopify revenue before retained revenue is calculated", "Status": "Confirmed", "Owner / next step": "Data owner — validate the live refund field once"},
+        {"Rule": "Forecast return provision", "Current answer": "10% is used only for platform-attributed gross-value scenarios", "Status": "Provisional", "Owner / next step": "Finance — confirm whether 10% is policy or an illustration"},
+        {"Rule": "Variable costs", "Current answer": "Payment fees + shipping only; 10% of HULA retained margin", "Status": "Confirmed proxy", "Owner / next step": "Finance — review periodically against P&L"},
+        {"Rule": "Break-even platform GMV ROAS", "Current answer": "4.0x provisional floor (3.98x from the supplied example)", "Status": "Configured", "Owner / next step": "Keep distinct from 1.0x contribution ROAS break-even"},
+        {"Rule": "Contribution ROAS scale target", "Current answer": "Not yet set", "Status": "Blocking SCALE", "Owner / next step": "Sarah — approve a target above break-even"},
+        {"Rule": "Maximum paid CAC", "Current answer": "Not yet set", "Status": "Blocking", "Owner / next step": "Sarah — set HKD limit"},
+        {"Rule": "Acquisition payback", "Current answer": "First order vs 90/180 days not decided", "Status": "Blocking", "Owner / next step": "Sarah — select policy"},
+        {"Rule": "Repeat profitability", "Current answer": "Include when sufficient data exists", "Status": "Confirmed direction", "Owner / next step": "Define cohort and contribution CLV"},
+    ]
+    attribution_policy = {
+        "commerce_truth_source": "Shopify / Report Pundit",
+        "management_paid_window": "7-day click-only",
+        "management_paid_window_status": "Proposed default — verify API fields and approve",
+        "platform_native_visible": True,
+        "klaviyo_separate": True,
+        "same_scope_shopify_orders": None,
+        "scope_comparable": False,
+        "paid_claimed_orders": 42,
+        "claim_excess_orders": None,
+        "claim_excess_status": "Unavailable until platform claims and Shopify orders use the same dates, channels and order population",
+    }
+    attribution_claims = [
+        {"Channel": "Google Ads", "Claimed orders": 25, "Claimed GMV": 148_913.65, "Platform-native window": "Not confirmed", "Management comparison": "7-day click-only planned", "Classification": "Self-reported marketing claim"},
+        {"Channel": "Meta Ads", "Claimed orders": 17, "Claimed GMV": 84_986.32, "Platform-native window": "Seven days stated; click/view mix unconfirmed", "Management comparison": "7-day click-only planned", "Classification": "Self-reported marketing claim"},
+    ]
+    automation_boundaries = [
+        {"Action": "Alerts when a threshold is crossed", "Boundary": "Candidate for automation", "Current state": "Safe to enable after destinations and thresholds are approved"},
+        {"Action": "Pause below contribution floor", "Boundary": "Candidate for automation", "Current state": "OFF — live contribution, return provision, window and minimum volume remain unresolved"},
+        {"Action": "Move budget inside the same total", "Boundary": "Candidate for automation", "Current state": "OFF — percentage cap and channel budgets are unresolved"},
+        {"Action": "Bid-cap adjustment inside a range", "Boundary": "Candidate for automation", "Current state": "OFF — approved range is unresolved"},
+        {"Action": "Increase total spend", "Boundary": "Never automatic", "Current state": "Requires Sarah + Elena + Tiffany"},
+        {"Action": "Launch campaign, audience or creative", "Boundary": "Never automatic", "Current state": "Requires human review and approval"},
+        {"Action": "Change billing or payment settings", "Boundary": "Never automatic", "Current state": "Prohibited"},
+        {"Action": "Send a customer message", "Boundary": "Never automatic", "Current state": "Prohibited"},
+    ]
+    ownership_checklist = [
+        {"Asset": "Shopify + Report Pundit", "Primary owner/admin": "Admin access confirmed; Samuel Ng shown as Store owner", "Billing/recovery controlled by HULA": "Not yet confirmed", "GoodSauce dependency": "No core dependency found; legacy apps still need mapping", "Next owner": "Tiffany / Sarah"},
+        {"Asset": "Google Ads + Google Cloud/API project", "Primary owner/admin": "Missing HULA access", "Billing/recovery controlled by HULA": "Unknown", "GoodSauce dependency": "Possible / unconfirmed", "Next owner": "GoodSauce + HULA admin"},
+        {"Asset": "Meta Business portfolio + ad account", "Primary owner/admin": "The Hula owns assets; HULA Marketing has full access", "Billing/recovery controlled by HULA": "Not fully audited", "GoodSauce dependency": "No core dependency found; CAPI/legacy setup unconfirmed", "Next owner": "HULA Marketing"},
+        {"Asset": "Klaviyo", "Primary owner/admin": "Unknown", "Billing/recovery controlled by HULA": "Unknown", "GoodSauce dependency": "Unknown", "Next owner": "Tiffany / Sarah"},
+        {"Asset": "GA4 + Search Console", "Primary owner/admin": "Unknown", "Billing/recovery controlled by HULA": "Unknown", "GoodSauce dependency": "Unknown", "Next owner": "Tiffany / Sarah"},
+        {"Asset": "Google Business Profile", "Primary owner/admin": "Unknown", "Billing/recovery controlled by HULA": "Unknown", "GoodSauce dependency": "Unknown", "Next owner": "Tiffany / Sarah"},
+        {"Asset": "Dashboard, connectors and scripts", "Primary owner/admin": "Unknown", "Billing/recovery controlled by HULA": "Unknown", "GoodSauce dependency": "Unknown", "Next owner": "Tiffany / Sarah"},
+    ]
+    access_readiness = [
+        {"Provider": "Shopify", "Admin / ownership audit": "PASS — app administration and Dev Dashboard available", "API credential state": "Not created in this audit", "App state": "HULA Trend Intelligence exists; 0 installs", "Live sync": "Not connected", "Next step": "Install a dedicated HULA-owned read-only app; first map legacy apps and confirm Store owner/recovery"},
+        {"Provider": "Meta / Instagram", "Admin / ownership audit": "PASS — HULA owns portfolio, ad account, Page, Instagram and dataset", "API credential state": "System-user token not created; reporting assets not assigned", "App state": "Existing app 'test' is not production-ready", "Live sync": "Not connected", "Next step": "Create/choose a production HULA app and system user; assign only ad account + dataset with read scopes"},
+        {"Provider": "Google Ads", "Admin / ownership audit": "MISSING — no working HULA access", "API credential state": "Unavailable", "App state": "Customer ID, manager ownership and Cloud project unconfirmed", "Live sync": "Not connected", "Next step": "Add a HULA-controlled email as Admin and complete the GoodSauce handover check"},
+    ]
     return {
         "meta": {
             "mode": "fixture",
@@ -254,6 +389,14 @@ def _build() -> dict[str, Any]:
         "customer_segments": customer_segments,
         "google_campaigns": google_campaigns,
         "meta_campaigns": meta_campaigns,
+        "paid_media_recommendations": paid_media_recommendations,
+        "profitability_policy": profitability_policy,
+        "business_rule_register": business_rule_register,
+        "attribution_policy": attribution_policy,
+        "attribution_claims": attribution_claims,
+        "automation_boundaries": automation_boundaries,
+        "access_readiness": access_readiness,
+        "ownership_checklist": ownership_checklist,
         "seo_opportunities": _seo_opportunities(),
         "technical_issues": technical_issues,
         "catalogue_issues": catalogue_issues,

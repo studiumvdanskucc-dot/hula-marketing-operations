@@ -8,6 +8,60 @@ from typing import Any
 # explicit here.
 CORE_METRICS: tuple[dict[str, Any], ...] = (
     {
+        "Metric": "Gross merchandise value (GMV)",
+        "Status": "Defined; inclusion rules need finance sign-off",
+        "Formula": "Gross value of included Shopify/POS merchandise sold before HULA/seller allocation",
+        "Source": "Shopify + Report Pundit",
+        "Scope": "Actual commerce only; never add platform-attributed value",
+        "Attribution window": "Not applicable — booked commerce",
+        "Use": "Trading scale and investor/external view",
+    },
+    {
+        "Metric": "HULA retained revenue",
+        "Status": "Provisional 31% blended proxy",
+        "Formula": "Shopify net revenue after recorded discounts/refunds × configurable retained-margin rate (31% provisional)",
+        "Source": "Shopify order lines + approved HULA commercial rules",
+        "Scope": "Current blended proxy; case-specific sale-period, outside-sale and HULA-funded voucher allocation remains a future refinement",
+        "Attribution window": "Not applicable — booked commerce",
+        "Use": "HULA share before approved variable costs",
+    },
+    {
+        "Metric": "HULA contribution",
+        "Status": "Provisional calculation available",
+        "Formula": "Shopify net revenue × retained-margin rate × (1 − payment-fees-and-shipping rate of retained margin)",
+        "Source": "Shopify/Report Pundit + finance cost rules",
+        "Scope": "Actual refunds are already deducted in Shopify net revenue; payment fees + shipping are currently 10% of retained margin",
+        "Attribution window": "Not applicable — booked commerce",
+        "Use": "The amount HULA can spend; primary profitability decision metric",
+    },
+    {
+        "Metric": "Contribution ROAS",
+        "Status": "Provisional scenario; not yet actionable",
+        "Formula": "Platform-attributed gross value × 31% × 90% after payment/shipping × 90% forecast non-return rate / paid-media spend",
+        "Source": "Paid platform + approved HULA contribution calculation",
+        "Scope": "The 10% forecast return provision is not applied to actual Shopify net revenue and still requires approval",
+        "Attribution window": "Normalized 7-day click management view plus visible platform-native view",
+        "Use": "SCALE / HOLD / REDUCE / PAUSE / REVIEW decision input",
+    },
+    {
+        "Metric": "Break-even platform GMV ROAS",
+        "Status": "Configured provisional floor: 4.0x",
+        "Formula": "1 / (31% retained × 90% after payment/shipping × 90% forecast non-return rate) = 3.98x ≈ 4.0x",
+        "Source": "HULA provisional profitability policy",
+        "Scope": "Gross/platform ROAS floor; it is equivalent to 1.0x contribution ROAS, not a 4.0x contribution ROAS floor",
+        "Attribution window": "Use the same governed window as the attributed value",
+        "Use": "Profitability reference only; SCALE also requires an approved higher target, volume, caps and live inventory",
+    },
+    {
+        "Metric": "Claim excess indicator",
+        "Status": "Unavailable until scopes align",
+        "Formula": "Sum of comparable platform-claimed orders − same-scope actual Shopify orders",
+        "Source": "Google Ads + Meta Ads + Shopify order population",
+        "Scope": "Identical dates, order eligibility and channel scope are mandatory",
+        "Attribution window": "Governed comparison window",
+        "Use": "Overlap warning only; not proof of exact duplicated customers without order IDs",
+    },
+    {
         "Metric": "Commerce revenue",
         "Status": "Defined",
         "Formula": "Sum of included Shopify/POS booked sales for the reporting period",
@@ -124,4 +178,3 @@ def metric_rows() -> list[dict[str, Any]]:
 
 def metric_by_name(name: str) -> dict[str, Any]:
     return next(dict(row) for row in CORE_METRICS if row["Metric"] == name)
-

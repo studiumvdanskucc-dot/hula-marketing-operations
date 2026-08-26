@@ -103,9 +103,9 @@ sync(window)
 capabilities()
 ```
 
-Shopify orders/refunds, GA4 and Search Console have read-only HTTP
-implementations. Google Ads, Meta, Klaviyo, Google Business Profile, Merchant
-Center and PageSpeed are honest configuration/health shells. A shell never
+Shopify orders/refunds, Meta campaign insights, GA4 and Search Console have
+read-only HTTP implementations. Google Ads, Klaviyo, Google Business Profile,
+Merchant Center and PageSpeed are honest configuration/health shells. A shell never
 returns a fake successful connection or fabricated source rows.
 
 Pinned at build time:
@@ -116,7 +116,7 @@ Pinned at build time:
 | GA4 Data API | v1 (`v1beta` REST resource path used by runReport) |
 | Search Console | v1 / webmasters v3 REST endpoint |
 | Google Ads | v25 shell |
-| Meta Marketing API | v26.0 shell |
+| Meta Marketing API | v26.0 read-only campaign-insights client |
 | Klaviyo | `2026-01-15` stable shell |
 | Merchant API | v1 shell |
 | PageSpeed Insights | v5 shell |

@@ -6,6 +6,7 @@ from typing import Any
 
 from src.marketing_ops.connectors.base import SyncWindow
 from src.marketing_ops.connectors.ga4 import GA4ReadOnlyConnector
+from src.marketing_ops.connectors.meta_ads import MetaAdsReadOnlyConnector
 from src.marketing_ops.connectors.search_console import SearchConsoleReadOnlyConnector
 from src.marketing_ops.connectors.shopify_read import ShopifyReadOnlyConnector
 from src.marketing_ops.models import ConnectionState
@@ -92,3 +93,55 @@ def test_search_console_paginates_and_keeps_dimensions() -> None:
     assert len(result.records) == 25000
     assert result.records[0]["country"] == "hkg"
     assert session.calls[1]["json"]["startRow"] == 25000
+
+
+def test_meta_ads_connection_and_read_only_insights_normalization() -> None:
+    session = FakeSession(
+        FakeResponse(
+            {
+                "id": "act_12345",
+                "name": "HULA",
+                "account_status": 1,
+                "currency": "HKD",
+                "timezone_name": "Asia/Hong_Kong",
+            }
+        ),
+        FakeResponse(
+            {
+                "data": [
+                    {
+                        "date_start": "2026-07-01",
+                        "date_stop": "2026-07-01",
+                        "campaign_id": "campaign-1",
+                        "campaign_name": "Focus Sales",
+                        "spend": "100.50",
+                        "impressions": "1000",
+                        "clicks": "50",
+                        "actions": [
+                            {"action_type": "purchase", "value": "3"},
+                            {"action_type": "omni_purchase", "value": "2"},
+                        ],
+                        "action_values": [
+                            {"action_type": "purchase", "value": "12000"},
+                            {"action_type": "omni_purchase", "value": "10000"},
+                        ],
+                        "attribution_setting": "7d_click",
+                    }
+                ]
+            }
+        ),
+    )
+    connector = MetaAdsReadOnlyConnector("12345", "meta-secret", "v26.0", session=session)
+
+    health = connector.test_connection()
+    assert health.success
+    assert health.detail["currency"] == "HKD"
+
+    result = connector.sync(SyncWindow(date(2026, 7, 1), date(2026, 7, 1)))
+    assert result.success
+    assert result.records[0]["purchase_count"] == 2
+    assert result.records[0]["attributed_purchase_value"] == 10_000
+    assert result.records[0]["management_attribution_window"] == "7d_click"
+    assert session.calls[1]["method"] == "GET"
+    assert session.calls[1]["headers"]["Authorization"] == "Bearer meta-secret"
+    assert "access_token" not in session.calls[1]["params"]
